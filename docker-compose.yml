@@ -1,0 +1,125 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: iu-backend
+    restart: unless-stopped
+    # Sadece localhost'a bağla (0.0.0.0 değil) — ağdan erişilmez; frontend nginx
+    # backend'e internal network üzerinden (backend:8000) ulaşır. 8000 yalnızca lokal debug.
+    ports:
+      - "127.0.0.1:8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./backend:/app
+      - ./cookies_output:/app/cookies_output
+      - ./logs:/app/logs
+      # Şifreli credential dosyası (generate_env.py ile üretilir). CREDENTIAL_KEY .env'den gelir.
+      # Şifreleme kullanmıyorsanız bunu ./gmail.csv:/app/gmail.csv:ro ile değiştirin.
+      - ./gmail.csv.enc:/app/gmail.csv.enc:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    sysctls:
+      - net.core.somaxconn=65535
+    shm_size: "4gb"
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: iu-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: iu-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER .env icinde ayarlanmali}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD .env icinde ayarlanmali}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB .env icinde ayarlanmali}
+    command: >
+      postgres
+      -c max_connections=300
+      -c shared_buffers=256MB
+      -c work_mem=16MB
+      -c maintenance_work_mem=128MB
+      -c effective_cache_size=512MB
+    # Port host'a AÇILMAZ — yalnızca Docker internal network üzerinden erişilir.
+    expose:
+      - "5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: iu-redis
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD .env icinde ayarlanmali}
+      # redis-cli parolayı argv yerine bu env'den okur (ps'te görünmez).
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?REDIS_PASSWORD .env icinde ayarlanmali}
+    command: >
+      sh -c "redis-server
+      --requirepass \"$$REDIS_PASSWORD\"
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --appendfsync everysec"
+    # Port host'a AÇILMAZ — yalnızca Docker internal network üzerinden erişilir.
+    expose:
+      - "6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  db-backup:
+    image: postgres:16-alpine
+    container_name: iu-db-backup
+    restart: "no"
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:?POSTGRES_USER .env icinde ayarlanmali}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD .env icinde ayarlanmali}
+      PGDATABASE: ${POSTGRES_DB:?POSTGRES_DB .env icinde ayarlanmali}
+    volumes:
+      - ./backups:/backups
+    entrypoint: >
+      sh -c "pg_dump -Fc > /backups/iu_cookies_$$(date +%Y%m%d_%H%M%S).dump
+             && echo 'Backup completed successfully'"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - backup
+
+volumes:
+  pgdata:
+  redisdata:

@@ -1,0 +1,247 @@
+import random
+import logging
+from dataclasses import dataclass, field
+
+logger = logging.getLogger("fingerprint_service")
+
+# SADECE ANDROID (Chromium motoru). iPhone/Safari ÇIKARILDI: motor Chromium olduğundan
+# 'Safari' UA + sızan navigator.userAgentData/vendor="Google Inc." anında bot sinyaliydi.
+# Android UA'lar Chromium ile tutarlıdır → Client Hints override'ı ile tam eşleşir.
+MOBILE_DEVICES = [
+    # --- Samsung Galaxy ---
+    {"name": "Galaxy S24 Ultra", "model": "SM-S928B", "av": "14", "vp": {"width": 384, "height": 824}, "dpr": 3.0, "plat": "Linux armv8l", "gpu_v": "Qualcomm", "gpu_r": "Adreno (TM) 750", "cores": 8, "mem": 8},
+    {"name": "Galaxy S24+", "model": "SM-S926B", "av": "14", "vp": {"width": 384, "height": 832}, "dpr": 3.0, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Samsung Xclipse 940", "cores": 8, "mem": 8},
+    {"name": "Galaxy S24", "model": "SM-S921B", "av": "14", "vp": {"width": 360, "height": 780}, "dpr": 3.0, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Samsung Xclipse 940", "cores": 8, "mem": 8},
+    {"name": "Galaxy S23 Ultra", "model": "SM-S918B", "av": "14", "vp": {"width": 384, "height": 824}, "dpr": 3.0, "plat": "Linux armv8l", "gpu_v": "Qualcomm", "gpu_r": "Adreno (TM) 740", "cores": 8, "mem": 8},
+    {"name": "Galaxy S23", "model": "SM-S911B", "av": "14", "vp": {"width": 360, "height": 780}, "dpr": 3.0, "plat": "Linux armv8l", "gpu_v": "Qualcomm", "gpu_r": "Adreno (TM) 740", "cores": 8, "mem": 8},
+    {"name": "Galaxy S23 FE", "model": "SM-S711B", "av": "14", "vp": {"width": 360, "height": 780}, "dpr": 3.0, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Mali-G78 MP14", "cores": 8, "mem": 8},
+    {"name": "Galaxy S22", "model": "SM-S901B", "av": "14", "vp": {"width": 360, "height": 780}, "dpr": 3.0, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Xclipse 920", "cores": 8, "mem": 8},
+    {"name": "Galaxy S21", "model": "SM-G991B", "av": "13", "vp": {"width": 360, "height": 800}, "dpr": 3.0, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Mali-G78", "cores": 8, "mem": 8},
+    {"name": "Galaxy S21 FE", "model": "SM-G990B", "av": "13", "vp": {"width": 360, "height": 800}, "dpr": 3.0, "plat": "Linux armv8l", "gpu_v": "Qualcomm", "gpu_r": "Adreno (TM) 660", "cores": 8, "mem": 6},
+    {"name": "Galaxy Note20", "model": "SM-N981B", "av": "13", "vp": {"width": 412, "height": 883}, "dpr": 2.625, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Mali-G77", "cores": 8, "mem": 8},
+    {"name": "Galaxy Z Flip5", "model": "SM-F731B", "av": "14", "vp": {"width": 360, "height": 748}, "dpr": 3.0, "plat": "Linux armv8l", "gpu_v": "Qualcomm", "gpu_r": "Adreno (TM) 740", "cores": 8, "mem": 8},
+    {"name": "Galaxy A54", "model": "SM-A546B", "av": "14", "vp": {"width": 360, "height": 800}, "dpr": 3.0, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Mali-G68 MC4", "cores": 8, "mem": 6},
+    {"name": "Galaxy A34", "model": "SM-A346B", "av": "13", "vp": {"width": 360, "height": 800}, "dpr": 3.0, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Mali-G68 MC4", "cores": 8, "mem": 6},
+    {"name": "Galaxy A14", "model": "SM-A145F", "av": "13", "vp": {"width": 360, "height": 800}, "dpr": 3.0, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Mali-G52 MC2", "cores": 8, "mem": 4},
+    {"name": "Galaxy A73", "model": "SM-A736B", "av": "13", "vp": {"width": 384, "height": 854}, "dpr": 2.8125, "plat": "Linux armv8l", "gpu_v": "Qualcomm", "gpu_r": "Adreno (TM) 642L", "cores": 8, "mem": 8},
+    {"name": "Galaxy M34", "model": "SM-M346B", "av": "13", "vp": {"width": 360, "height": 800}, "dpr": 3.0, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Mali-G68 MC4", "cores": 8, "mem": 6},
+    # --- Google Pixel ---
+    {"name": "Pixel 8 Pro", "model": "Pixel 8 Pro", "av": "14", "vp": {"width": 448, "height": 998}, "dpr": 2.625, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Mali-G715-Immortalis MC11", "cores": 9, "mem": 12},
+    {"name": "Pixel 8", "model": "Pixel 8", "av": "14", "vp": {"width": 412, "height": 915}, "dpr": 2.625, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Mali-G715-Immortalis MC11", "cores": 9, "mem": 8},
+    {"name": "Pixel 7 Pro", "model": "Pixel 7 Pro", "av": "14", "vp": {"width": 412, "height": 892}, "dpr": 3.5, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Mali-G710", "cores": 8, "mem": 12},
+    {"name": "Pixel 7", "model": "Pixel 7", "av": "14", "vp": {"width": 412, "height": 915}, "dpr": 2.625, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Mali-G710", "cores": 8, "mem": 8},
+    {"name": "Pixel 7a", "model": "Pixel 7a", "av": "14", "vp": {"width": 412, "height": 915}, "dpr": 2.625, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Mali-G710", "cores": 8, "mem": 8},
+    {"name": "Pixel 6a", "model": "Pixel 6a", "av": "13", "vp": {"width": 412, "height": 915}, "dpr": 2.625, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Mali-G78", "cores": 8, "mem": 6},
+    # --- Xiaomi / Redmi / Poco ---
+    {"name": "Xiaomi 14", "model": "23127PN0CG", "av": "14", "vp": {"width": 393, "height": 851}, "dpr": 2.75, "plat": "Linux armv8l", "gpu_v": "Qualcomm", "gpu_r": "Adreno (TM) 750", "cores": 8, "mem": 12},
+    {"name": "Xiaomi 13", "model": "2211133G", "av": "14", "vp": {"width": 390, "height": 844}, "dpr": 3.0, "plat": "Linux armv8l", "gpu_v": "Qualcomm", "gpu_r": "Adreno (TM) 740", "cores": 8, "mem": 8},
+    {"name": "Xiaomi 12", "model": "2201123G", "av": "13", "vp": {"width": 390, "height": 844}, "dpr": 3.0, "plat": "Linux armv8l", "gpu_v": "Qualcomm", "gpu_r": "Adreno (TM) 730", "cores": 8, "mem": 8},
+    {"name": "Redmi Note 13 Pro", "model": "23117RA68G", "av": "14", "vp": {"width": 393, "height": 873}, "dpr": 2.75, "plat": "Linux armv8l", "gpu_v": "Qualcomm", "gpu_r": "Adreno (TM) 710", "cores": 8, "mem": 8},
+    {"name": "Redmi Note 12", "model": "22111317I", "av": "13", "vp": {"width": 393, "height": 873}, "dpr": 2.75, "plat": "Linux armv8l", "gpu_v": "Qualcomm", "gpu_r": "Adreno (TM) 610", "cores": 8, "mem": 6},
+    {"name": "Redmi Note 11", "model": "2201117TG", "av": "13", "vp": {"width": 393, "height": 873}, "dpr": 2.75, "plat": "Linux armv8l", "gpu_v": "Qualcomm", "gpu_r": "Adreno (TM) 610", "cores": 8, "mem": 4},
+    {"name": "Poco X5 Pro", "model": "22101320G", "av": "13", "vp": {"width": 393, "height": 873}, "dpr": 2.75, "plat": "Linux armv8l", "gpu_v": "Qualcomm", "gpu_r": "Adreno (TM) 642L", "cores": 8, "mem": 8},
+    {"name": "Poco F5", "model": "23049PCD8G", "av": "14", "vp": {"width": 393, "height": 873}, "dpr": 2.75, "plat": "Linux armv8l", "gpu_v": "Qualcomm", "gpu_r": "Adreno (TM) 725", "cores": 8, "mem": 8},
+    # --- OnePlus / Oppo / Realme / Vivo ---
+    {"name": "OnePlus 11", "model": "CPH2449", "av": "14", "vp": {"width": 412, "height": 919}, "dpr": 3.0, "plat": "Linux armv8l", "gpu_v": "Qualcomm", "gpu_r": "Adreno (TM) 740", "cores": 8, "mem": 16},
+    {"name": "OnePlus Nord 3", "model": "CPH2493", "av": "14", "vp": {"width": 412, "height": 919}, "dpr": 2.625, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Mali-G715 MC10", "cores": 8, "mem": 8},
+    {"name": "Oppo Reno10", "model": "CPH2531", "av": "14", "vp": {"width": 360, "height": 804}, "dpr": 3.0, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Mali-G610 MC4", "cores": 8, "mem": 8},
+    {"name": "Oppo Reno8", "model": "CPH2359", "av": "13", "vp": {"width": 360, "height": 804}, "dpr": 3.0, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Mali-G610 MC3", "cores": 8, "mem": 8},
+    {"name": "Realme 11 Pro", "model": "RMX3771", "av": "14", "vp": {"width": 393, "height": 851}, "dpr": 2.75, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Mali-G610 MC4", "cores": 8, "mem": 8},
+    {"name": "Realme C55", "model": "RMX3710", "av": "13", "vp": {"width": 393, "height": 873}, "dpr": 2.75, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Mali-G57 MC2", "cores": 8, "mem": 6},
+    {"name": "Vivo V27", "model": "V2246", "av": "13", "vp": {"width": 392, "height": 850}, "dpr": 2.75, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Mali-G610 MC4", "cores": 8, "mem": 8},
+    {"name": "Vivo Y36", "model": "V2247", "av": "13", "vp": {"width": 393, "height": 873}, "dpr": 2.75, "plat": "Linux armv8l", "gpu_v": "Qualcomm", "gpu_r": "Adreno (TM) 610", "cores": 8, "mem": 8},
+    # --- Motorola / Honor / Nothing / Tecno / Infinix ---
+    {"name": "Motorola Edge 40", "model": "motorola edge 40", "av": "14", "vp": {"width": 412, "height": 915}, "dpr": 2.625, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Mali-G68", "cores": 8, "mem": 8},
+    {"name": "Moto G84", "model": "motorola g84 5G", "av": "14", "vp": {"width": 393, "height": 873}, "dpr": 2.75, "plat": "Linux armv8l", "gpu_v": "Qualcomm", "gpu_r": "Adreno (TM) 619", "cores": 8, "mem": 8},
+    {"name": "Honor 90", "model": "REA-NX9", "av": "13", "vp": {"width": 384, "height": 854}, "dpr": 2.8125, "plat": "Linux armv8l", "gpu_v": "Qualcomm", "gpu_r": "Adreno (TM) 710", "cores": 8, "mem": 12},
+    {"name": "Nothing Phone 2", "model": "A065", "av": "14", "vp": {"width": 412, "height": 915}, "dpr": 2.625, "plat": "Linux armv8l", "gpu_v": "Qualcomm", "gpu_r": "Adreno (TM) 730", "cores": 8, "mem": 12},
+    {"name": "Tecno Camon 20", "model": "CK6n", "av": "13", "vp": {"width": 393, "height": 873}, "dpr": 2.75, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Mali-G57 MC2", "cores": 8, "mem": 8},
+    {"name": "Infinix Note 30", "model": "X6833B", "av": "13", "vp": {"width": 393, "height": 873}, "dpr": 2.75, "plat": "Linux armv8l", "gpu_v": "ARM", "gpu_r": "Mali-G57 MC2", "cores": 8, "mem": 8},
+]
+
+# Güncel Chrome ana sürümleri (UA + Client Hints AYNI sürümü kullanır → tutarlı).
+_ANDROID_CHROME = [124, 125, 126, 127, 128, 129, 130, 131]
+
+
+@dataclass
+class BrowserFingerprint:
+    user_agent: str
+    viewport: dict
+    hardware_concurrency: int
+    device_memory: int
+    device_scale_factor: float = 3.0
+    is_mobile: bool = True
+    has_touch: bool = True
+    platform: str = "Linux armv8l"
+    gpu_vendor: str = "Qualcomm"
+    gpu_renderer: str = "Adreno (TM) 740"
+    device_name: str = ""
+    os_type: str = "android"
+    locale: str = "tr-TR"
+    timezone_id: str = "Europe/Istanbul"
+    color_scheme: str = "light"
+    model: str = "SM-S911B"
+    os_version: str = "14"
+    browser_version: str = "131"   # Chrome ana sürüm (UA + userAgentData + Sec-CH-UA aynı)
+    canvas_noise: int = 1          # SABİT (per-profil) → canvas hash tutarlı; per-call random tespit sinyaliydi
+
+
+def _build_ua(dev: dict, chrome: int) -> str:
+    return (
+        f"Mozilla/5.0 (Linux; Android {dev['av']}; {dev['model']}) "
+        f"AppleWebKit/537.36 (KHTML, like Gecko) "
+        f"Chrome/{chrome}.0.0.0 Mobile Safari/537.36"
+    )
+
+
+class FingerprintService:
+    def __init__(self):
+        self._use_browserforge = False
+
+    def generate(self, seed: int | None = None) -> BrowserFingerprint:
+        rng = random.Random(seed) if seed is not None else random
+        dev = rng.choice(MOBILE_DEVICES)
+        chrome = rng.choice(_ANDROID_CHROME)
+        return BrowserFingerprint(
+            user_agent=_build_ua(dev, chrome),
+            viewport=dict(dev["vp"]),
+            hardware_concurrency=dev["cores"],
+            device_memory=dev["mem"],
+            device_scale_factor=dev["dpr"],
+            is_mobile=True,
+            has_touch=True,
+            platform=dev["plat"],
+            gpu_vendor=dev["gpu_v"],
+            gpu_renderer=dev["gpu_r"],
+            device_name=dev["name"],
+            os_type="android",
+            model=dev["model"],
+            os_version=dev["av"],
+            browser_version=str(chrome),
+            canvas_noise=rng.randint(1, 3),
+        )
+
+    def _ua_ch_headers(self, fp: BrowserFingerprint) -> dict:
+        """Sec-CH-UA istek başlıkları — MOBİL, UA ile AYNI Chrome sürümü. UA-vs-ClientHints
+        uyuşmazlığını kapatır (H1)."""
+        v = fp.browser_version
+        return {
+            "Sec-CH-UA": f'"Chromium";v="{v}", "Google Chrome";v="{v}", "Not_A Brand";v="24"',
+            "Sec-CH-UA-Mobile": "?1",
+            "Sec-CH-UA-Platform": '"Android"',
+        }
+
+    def get_stealth_script(self, fingerprint: BrowserFingerprint | None = None) -> str:
+        fp = fingerprint
+        platform = fp.platform if fp else "Linux armv8l"
+        gpu_v = fp.gpu_vendor if fp else "Qualcomm"
+        gpu_r = fp.gpu_renderer if fp else "Adreno (TM) 740"
+        mem = fp.device_memory if fp else 8
+        cores = fp.hardware_concurrency if fp else 8
+        model = fp.model if fp else "SM-S911B"
+        osv = fp.os_version if fp else "14"
+        cver = fp.browser_version if fp else "131"
+        cnoise = fp.canvas_noise if fp else 1
+        return f"""
+Object.defineProperty(navigator, 'webdriver', {{ get: () => false }});
+Object.defineProperty(navigator, 'languages', {{ get: () => ['tr-TR', 'tr', 'en-US', 'en'] }});
+Object.defineProperty(navigator, 'platform', {{ get: () => 'Linux armv8l' }});
+Object.defineProperty(navigator, 'maxTouchPoints', {{ get: () => 5 }});
+try {{ Object.defineProperty(navigator, 'deviceMemory', {{ get: () => {mem} }}); }} catch (e) {{}}
+try {{ Object.defineProperty(navigator, 'hardwareConcurrency', {{ get: () => {cores} }}); }} catch (e) {{}}
+
+// --- MOBİL Client Hints: navigator.userAgentData UA ile TUTARLI (H1 fix) ---
+try {{
+  const _brands = [
+    {{ brand: "Chromium", version: "{cver}" }},
+    {{ brand: "Google Chrome", version: "{cver}" }},
+    {{ brand: "Not_A Brand", version: "24" }}
+  ];
+  const _uaData = {{
+    brands: _brands,
+    mobile: true,
+    platform: "Android",
+    getHighEntropyValues: function(hints) {{
+      return Promise.resolve({{
+        architecture: "",
+        bitness: "",
+        brands: _brands,
+        fullVersionList: [
+          {{ brand: "Chromium", version: "{cver}.0.0.0" }},
+          {{ brand: "Google Chrome", version: "{cver}.0.0.0" }},
+          {{ brand: "Not_A Brand", version: "24.0.0.0" }}
+        ],
+        mobile: true,
+        model: "{model}",
+        platform: "Android",
+        platformVersion: "{osv}.0.0",
+        uaFullVersion: "{cver}.0.0.0",
+        wow64: false
+      }});
+    }},
+    toJSON: function() {{ return {{ brands: _brands, mobile: true, platform: "Android" }}; }}
+  }};
+  Object.defineProperty(navigator, 'userAgentData', {{ get: () => _uaData, configurable: true }});
+}} catch (e) {{}}
+
+// permissions guard (yoksa tüm stealth çökmesin - L8 fix)
+try {{
+  if (window.navigator.permissions && window.navigator.permissions.query) {{
+    const originalQuery = window.navigator.permissions.query;
+    window.navigator.permissions.query = (parameters) =>
+      parameters && parameters.name === 'notifications'
+        ? Promise.resolve({{ state: Notification.permission }})
+        : originalQuery(parameters);
+  }}
+}} catch (e) {{}}
+
+// Mobil tarayıcılarda eklenti yoktur.
+try {{
+  Object.defineProperty(navigator, 'plugins', {{ get: () => [] }});
+  Object.defineProperty(navigator, 'mimeTypes', {{ get: () => [] }});
+}} catch (e) {{}}
+
+try {{
+  const getParameter = WebGLRenderingContext.prototype.getParameter;
+  WebGLRenderingContext.prototype.getParameter = function(parameter) {{
+    if (parameter === 37445) return '{gpu_v}';
+    if (parameter === 37446) return '{gpu_r}';
+    return getParameter.call(this, parameter);
+  }};
+}} catch (e) {{}}
+
+// Canvas: SABİT gürültü (per-profil) → hash tutarlı; getImageData tainted'ta patlamasın (M5 fix)
+try {{
+  const _cn = {cnoise};
+  const toDataURL = HTMLCanvasElement.prototype.toDataURL;
+  HTMLCanvasElement.prototype.toDataURL = function(type) {{
+    try {{
+      if (type === 'image/png') {{
+        const ctx = this.getContext('2d');
+        if (ctx) {{
+          const imageData = ctx.getImageData(0, 0, this.width, this.height);
+          for (let i = 0; i < imageData.data.length; i += 4) {{
+            imageData.data[i] = (imageData.data[i] + _cn) & 255;
+          }}
+          ctx.putImageData(imageData, 0, 0);
+        }}
+      }}
+    }} catch (e) {{}}
+    return toDataURL.apply(this, arguments);
+  }};
+}} catch (e) {{}}
+"""
+
+    def get_context_options(self, fingerprint: BrowserFingerprint) -> dict:
+        return {
+            "user_agent": fingerprint.user_agent,
+            "viewport": fingerprint.viewport,
+            "locale": fingerprint.locale,
+            "timezone_id": fingerprint.timezone_id,
+            "color_scheme": fingerprint.color_scheme,
+            "device_scale_factor": fingerprint.device_scale_factor,
+            "has_touch": fingerprint.has_touch,
+            "is_mobile": fingerprint.is_mobile,
+            # MOBİL Client Hints başlıkları → UA ile tutarlı (Google mismatch görmez).
+            "extra_http_headers": self._ua_ch_headers(fingerprint),
+        }

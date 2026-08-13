@@ -1,0 +1,65 @@
+# Environment
+.env
+.env.local
+.env.production
+
+# Data
+*.csv
+*.enc
+gmail.csv.enc
+cookies_output/
+backups/
+
+# Logs
+logs/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+venv/
+.venv/
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Docker
+docker-compose.override.yml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+
+# Checkpoint files
+.checkpoint.json
+.env.*
+!.env.example
+*.tgz
+*.zip
+.env.local.disabled
+deploy_backups/
+# Sır içeren dokümanlar/loglar (debug dökümleri) — repoya GİRMEZ
+antigravity_sohbet_gecmisi.md
+makale.md
+İstanbul Üniversitesi Proje.md
+*sohbet*.md
+*_gecmisi.md

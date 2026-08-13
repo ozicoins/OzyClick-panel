@@ -1,0 +1,28 @@
+{
+  "version": "2026-08-04",
+  "google_login": {
+    "email_input": "#identifierId, input[name=\"identifier\"], input[type=\"email\"]",
+    "email_next": "#identifierNext button, #identifierNext",
+    "password_input": "input[type=\"password\"][name=\"Passwd\"], input[type=\"password\"], input[name=\"Passwd\"]",
+    "password_next": "#passwordNext button, #passwordNext",
+    "totp_input": "input[name=\"totpPin\"], input[type=\"tel\"]",
+    "totp_next": "#totpNext button",
+    "try_another_way": "text=/try another way|başka bir yol/i",
+    "recovery_email_option": "text=/recovery e-?mail|kurtarma e-?posta|kurtarma adresi/i",
+    "recovery_email_input": "input[type=\"email\"]",
+    "recovery_email_next": "#next button, #next, button:has-text(\"Next\"), button:has-text(\"İleri\")",
+    "captcha_frame": "iframe[src*=\"recaptcha\"]",
+    "suspicious_activity": "text=Verify it's you"
+  },
+  "google_search": {
+    "search_input": "textarea[name=\"q\"], input[name=\"q\"]",
+    "search_button": "input[name=\"btnK\"], button[type=\"submit\"]",
+    "result_links": "h3",
+    "consent_accept": "button[id=\"L2AGLb\"]"
+  },
+  "google_account": {
+    "myaccount_url": "https://accounts.google.com/myaccount",
+    "profile_pic": "img[data-profile-identifier]",
+    "security_tab": "a[href*=\"security\"]"
+  }
+}
