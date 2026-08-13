@@ -3,7 +3,6 @@ import { LogOut, Cpu, MemoryStick, HardDrive, Settings as SettingsIcon } from 'l
 import OzyLogo from './ui/OzyLogo'
 
 interface Props {
-  activeEmail: string
   onLogout: () => void
   onOpenSettings?: () => void
 }
@@ -29,7 +28,7 @@ function ResMeter({ icon: Icon, label, pct, sub }: { icon: any; label: string; p
   )
 }
 
-export default function Header({ activeEmail, onLogout, onOpenSettings }: Props) {
+export default function Header({ onLogout, onOpenSettings }: Props) {
   const { data: health } = useSystemHealth()
   const diskPct = health?.disk_percent
 
@@ -57,17 +56,6 @@ export default function Header({ activeEmail, onLogout, onOpenSettings }: Props)
           <ResMeter icon={MemoryStick} label="RAM" pct={health?.ram_percent} sub={health?.ram_used_mb ? `${health.ram_used_mb}/${health.ram_total_mb} MB` : undefined} />
           <ResMeter icon={HardDrive} label="Disk" pct={diskPct} sub={health?.disk_free_gb != null ? `${health.disk_free_gb} GB boş` : undefined} />
         </div>
-
-        {activeEmail && (
-          <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-iuNavy/50 border border-iuBorder">
-            <div className="w-6 h-6 rounded-full bg-iuGold/20 flex items-center justify-center text-iuGold text-xs font-bold">
-              {activeEmail[0].toUpperCase()}
-            </div>
-            <span className="text-xs text-slate-300 max-w-[140px] truncate">
-              {activeEmail}
-            </span>
-          </div>
-        )}
 
         <button
           onClick={onOpenSettings}

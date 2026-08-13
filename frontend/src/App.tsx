@@ -212,7 +212,7 @@ export default function App() {
     <>
       <div className="min-h-screen p-3 sm:p-4 space-y-4 max-w-[1600px] mx-auto above-texture">
         <ErrorBoundary fallbackTitle="Header yüklenemedi">
-          <Header activeEmail={activeEmail} onLogout={handleLogout} onOpenSettings={() => setShowSettings(true)} />
+          <Header onLogout={handleLogout} onOpenSettings={() => setShowSettings(true)} />
         </ErrorBoundary>
 
         {/* Sekme çubuğu — yapışkan, camsı, aktif sekmede gold gradyan + parıltı */}
