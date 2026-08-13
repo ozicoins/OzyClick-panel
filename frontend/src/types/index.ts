@@ -173,6 +173,17 @@ export interface ScheduleConfig {
   summary_time: string
 }
 
+// Zamanlayıcı canlı durum (görünürlük: sonraki/son çalışma + aktif mi)
+export interface ScheduleStatus {
+  enabled: boolean
+  time: string
+  next_run: string | null
+  last_run: string | null
+  last_summary: string | null
+  running: boolean
+  now_tr: string
+}
+
 // Yedek sıklığı/saklama
 export interface BackupConfig {
   interval_hours: number

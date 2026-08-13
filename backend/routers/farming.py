@@ -255,6 +255,16 @@ async def launch_farm_all(req: "FarmAllRequest", redis, db: AsyncSession, user_i
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
 
+    # ÇAKIŞMA GUARD: bugün üretim yapıldı işaretle (Türkiye tarihi) → zamanlayıcı aynı gün
+    # yeniden auto-üretim yapmaz (manuel VEYA zamanlı fark etmez; unutup çift üretim olmaz).
+    try:
+        from services.automation_config import set_schedule_runtime
+        from datetime import datetime, timezone, timedelta
+        _tr_date = datetime.now(timezone(timedelta(hours=3))).strftime("%Y-%m-%d")
+        await set_schedule_runtime(redis, {"last_farm_date": _tr_date})
+    except Exception:
+        pass
+
     return {
         "batch_id": str(batch.id), "accounts": len(accounts), "total": total,
         "message": f"{len(accounts)} hesap × {req.count_per_account} = {total} profil ({req.mode}) başlatıldı.",

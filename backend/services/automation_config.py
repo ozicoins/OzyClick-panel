@@ -52,9 +52,11 @@ async def set_schedule(redis, patch: dict) -> dict:
 
 
 async def get_schedule_runtime(redis) -> dict:
-    """Scheduler çalışma durumu: last_run/last_summary = 'YYYY-MM-DD HH:MM' işaretçisi.
-    Kullanıcı config'inden AYRI → API kaydı bu değerleri EZMEZ (çift-çalıştırma önlenir)."""
-    rt = {"last_run": None, "last_summary": None}
+    """Scheduler çalışma durumu (kullanıcı config'inden AYRI → API kaydı EZMEZ):
+    - last_run/last_summary: 'YYYY-MM-DD HH:MM' işaretçisi (scheduler'ın kendi tur/özet kilidi)
+    - last_farm_date: 'YYYY-MM-DD' — o gün herhangi bir üretim (MANUEL veya zamanlı) yapıldı mı
+      → zamanlayıcı 'bugün zaten üretildi' ise atlar (çift-üretim/çakışma önlenir)."""
+    rt = {"last_run": None, "last_summary": None, "last_farm_date": None}
     if redis is not None:
         try:
             raw = await redis.get(RUNTIME_KEY)
@@ -67,7 +69,7 @@ async def get_schedule_runtime(redis) -> dict:
 
 async def set_schedule_runtime(redis, patch: dict) -> dict:
     cur = await get_schedule_runtime(redis)
-    for k in ("last_run", "last_summary"):
+    for k in ("last_run", "last_summary", "last_farm_date"):
         if k in patch:
             cur[k] = patch[k]
     if redis is not None:

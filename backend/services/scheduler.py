@@ -58,6 +58,10 @@ async def _maybe_farm(redis, sched, rt, now):
     marker = f"{wdate} {sched.get('time')}"
     if rt.get("last_run") == marker:
         return
+    # ÇAKIŞMA GUARD: bugün zaten üretim yapıldıysa (MANUEL veya zamanlı) → auto-üretim atla.
+    # 'unutup manuel üretim + zamanlı üretim' aynı gün çift-üretime yol açmasın.
+    if rt.get("last_farm_date") == now.strftime("%Y-%m-%d"):
+        return
     from routers.farming import _active_engines, launch_farm_all, FarmAllRequest
     if _active_engines:
         # Aktif üretim var → bu tick atla. İşaretçi YAZILMAZ; pencere içinde sonraki tick tekrar dener.

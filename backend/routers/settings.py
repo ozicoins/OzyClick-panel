@@ -79,6 +79,48 @@ async def schedule_get(request: Request, _user: dict = Depends(get_current_user)
     return await get_schedule(request.app.state.redis)
 
 
+@router.get("/schedule/status")
+async def schedule_status(request: Request, _user: dict = Depends(get_current_user)):
+    """Zamanlayıcının CANLI durumu: açık mı, SONRAKİ çalışma (Türkiye saati), SON çalışma,
+    ve şu an aktif üretim var mı (çakışma göstergesi). Panel bunu poll'lar."""
+    from datetime import datetime, timedelta
+    from services.automation_config import get_schedule_runtime
+    from services.scheduler import TR_TZ, WINDOW_MIN, _parse_hhmm
+
+    redis = request.app.state.redis
+    sched = await get_schedule(redis)
+    rt = await get_schedule_runtime(redis)
+    now = datetime.now(TR_TZ)
+
+    next_run = None
+    hm = _parse_hhmm(sched.get("time"))
+    if sched.get("enabled") and hm:
+        today = now.strftime("%Y-%m-%d")
+        today_dt = now.replace(hour=hm[0], minute=hm[1], second=0, microsecond=0)
+        window_end = today_dt + timedelta(minutes=WINDOW_MIN)
+        farmed_today = (rt.get("last_farm_date") == today)          # bugün üretildi (manuel/zamanlı)
+        ran_window = (rt.get("last_run") == f"{today} {sched['time']}")
+        will_run_today = (not farmed_today) and (not ran_window) and (now < window_end)
+        next_run = today_dt if will_run_today else (today_dt + timedelta(days=1))
+
+    # Aktif üretim var mı (manuel VEYA zamanlanan) → çakışma/işlem göstergesi.
+    try:
+        from routers.farming import _active_engines
+        running = len(_active_engines) > 0
+    except Exception:
+        running = False
+
+    return {
+        "enabled": bool(sched.get("enabled")),
+        "time": sched.get("time"),
+        "next_run": next_run.isoformat() if next_run else None,
+        "last_run": rt.get("last_run"),
+        "last_summary": rt.get("last_summary"),
+        "running": running,
+        "now_tr": now.isoformat(),
+    }
+
+
 @router.put("/schedule")
 async def schedule_put(req: ScheduleRequest, request: Request, _user: dict = Depends(get_current_user)):
     # Sadece kullanıcı ayarları güncellenir; scheduler çalışma durumu (last_run) AYRI anahtarda

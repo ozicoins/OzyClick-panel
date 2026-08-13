@@ -10,6 +10,27 @@ import PanelHeader from './ui/PanelHeader'
 const INTERVALS = [1, 2, 3, 4, 6, 8, 12, 24]
 const inputCls = 'bg-iuNavy/50 border border-iuBorder rounded-lg px-2 py-1.5 text-xs text-slate-200 focus:border-iuGold focus:outline-none'
 
+// Sonraki çalışma ISO'sunu (Türkiye +03:00) "bugün/yarın HH:MM" olarak göster.
+const fmtNext = (iso: string | null | undefined): string => {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return '—'
+  const now = new Date()
+  const day = 86400000
+  const dDate = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const nDate = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const hm = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+  if (dDate === nDate) return `bugün ${hm}`
+  if (dDate === nDate + day) return `yarın ${hm}`
+  return d.toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+// Son çalışma işaretçisi "YYYY-MM-DD HH:MM" → "DD.MM.YYYY HH:MM".
+const fmtLast = (marker: string | null | undefined): string => {
+  if (!marker) return 'henüz yok'
+  const m = marker.match(/(\d{4})-(\d{2})-(\d{2}) (\d{2}:\d{2})/)
+  return m ? `${m[3]}.${m[2]}.${m[1]} ${m[4]}` : marker
+}
+
 export default function AutomationSettings() {
   const qc = useQueryClient()
 
@@ -17,13 +38,29 @@ export default function AutomationSettings() {
   const { data: sched } = useQuery<ScheduleConfig>({ queryKey: ['schedule'], queryFn: () => api.getSchedule() })
   const [s, setS] = useState<Partial<ScheduleConfig>>({})
   useEffect(() => { if (sched) setS(sched) }, [sched])
+  // Ayarları kaydet — enabled BURADA yok; aç/kapa anlık Durdur/Devam butonuyla yönetilir.
   const saveSched = useMutation({
     mutationFn: () => api.setSchedule({
-      enabled: s.enabled, time: s.time, mode: s.mode, count_per_account: s.count_per_account,
+      time: s.time, mode: s.mode, count_per_account: s.count_per_account,
       lifespan_days: s.lifespan_days, sector: s.sector, daily_summary: s.daily_summary, summary_time: s.summary_time,
     }),
-    onSuccess: (d) => { qc.setQueryData(['schedule'], d); toast.success('Zamanlayıcı kaydedildi') },
+    onSuccess: (d) => { qc.setQueryData(['schedule'], d); qc.invalidateQueries({ queryKey: ['schedule-status'] }); toast.success('Zamanlayıcı ayarı kaydedildi') },
     onError: (e: any) => toast.error(e?.message || 'Kaydedilemedi'),
+  })
+
+  // Canlı durum (sonraki/son çalışma + aktif mi) — 20sn'de bir tazelenir.
+  const { data: schedStatus } = useQuery({
+    queryKey: ['schedule-status'], queryFn: () => api.getScheduleStatus(), refetchInterval: 20_000,
+  })
+  // Anlık Durdur / Devam Et (enabled toggle) — kaydet'e gerek yok.
+  const togglePause = useMutation({
+    mutationFn: () => api.setSchedule({ enabled: !schedStatus?.enabled }),
+    onSuccess: (d) => {
+      qc.setQueryData(['schedule'], d)
+      qc.invalidateQueries({ queryKey: ['schedule-status'] })
+      toast.success(d.enabled ? 'Zamanlayıcı DEVAM ediyor ▶' : 'Zamanlayıcı DURDURULDU ⏸')
+    },
+    onError: () => toast.error('Değiştirilemedi'),
   })
 
   // --- Yedek ayarları ---
@@ -50,12 +87,23 @@ export default function AutomationSettings() {
 
       {/* Üretim Zamanlayıcı */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-slate-300 flex items-center gap-1.5"><CalendarClock className="w-3.5 h-3.5 text-iuGold" /> Üretim Zamanlayıcı</span>
-          <label className="flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer">
-            <input type="checkbox" checked={!!s.enabled} onChange={e => setS(v => ({ ...v, enabled: e.target.checked }))} className="accent-iuGold" />
-            Açık
-          </label>
+        <span className="text-xs text-slate-300 flex items-center gap-1.5"><CalendarClock className="w-3.5 h-3.5 text-iuGold" /> Üretim Zamanlayıcı</span>
+
+        {/* CANLI DURUM — açık/kapalı + sonraki/son çalışma + aktif mi + anlık Durdur/Devam */}
+        <div className={`rounded-lg border p-2.5 flex items-center justify-between gap-2 ${schedStatus?.enabled ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-iuBorder bg-iuNavy/30'}`}>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 text-[11px] flex-wrap">
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${schedStatus?.enabled ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+              <span className={schedStatus?.enabled ? 'text-emerald-400 font-medium' : 'text-slate-500'}>{schedStatus?.enabled ? 'Açık' : 'Kapalı'}</span>
+              {schedStatus?.enabled && <span className="text-slate-400">· Sonraki: {fmtNext(schedStatus.next_run)}</span>}
+              {schedStatus?.running && <span className="text-iuGold">· ▶ üretim çalışıyor</span>}
+            </div>
+            <div className="text-[10px] text-slate-600 mt-0.5">Son çalışma: {fmtLast(schedStatus?.last_run)}</div>
+          </div>
+          <button onClick={() => togglePause.mutate()} disabled={togglePause.isPending}
+            className={`px-3 py-1.5 rounded-lg text-[11px] font-medium flex-shrink-0 border transition-colors disabled:opacity-40 ${schedStatus?.enabled ? 'bg-red-500/10 text-red-400 border-red-500/25 hover:bg-red-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25 hover:bg-emerald-500/20'}`}>
+            {togglePause.isPending ? '...' : (schedStatus?.enabled ? 'Durdur' : 'Devam Et')}
+          </button>
         </div>
         <div className="grid grid-cols-2 gap-2">
           <label className="text-[10px] text-slate-500 space-y-1">
@@ -88,7 +136,8 @@ export default function AutomationSettings() {
           {saveSched.isPending ? 'Kaydediliyor...' : 'Zamanlayıcıyı Kaydet'}
         </button>
         <p className="text-[10px] text-slate-600 leading-snug">
-          Açıkken her gün belirtilen saatte (<b className="text-slate-400">Türkiye saati</b>) havuzdaki TÜM hesaplar için üretim başlar (aktif üretim varsa atlanır).
+          Açıkken her gün belirtilen saatte (<b className="text-slate-400">Türkiye saati</b>) havuzdaki TÜM hesaplar için üretim başlar.
+          <b className="text-slate-400"> Çakışma yok:</b> o an aktif üretim varsa VEYA o gün zaten (manuel/otomatik) üretim yapıldıysa atlanır. Durdur/Devam ile istediğin an kontrol edersin.
         </p>
       </div>
 

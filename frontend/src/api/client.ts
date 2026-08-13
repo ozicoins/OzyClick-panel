@@ -226,6 +226,8 @@ export const api = {
     request<import('../types').ScheduleConfig>('/api/v1/settings/schedule'),
   setSchedule: (patch: Partial<import('../types').ScheduleConfig>) =>
     request<import('../types').ScheduleConfig>('/api/v1/settings/schedule', { method: 'PUT', body: JSON.stringify(patch) }),
+  getScheduleStatus: () =>
+    request<import('../types').ScheduleStatus>('/api/v1/settings/schedule/status'),
 
   // Otomatik ölü-çerez temizliği
   getAutoCleanup: () =>
