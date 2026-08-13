@@ -55,6 +55,48 @@ export interface ProxyMapEntry {
   status: string
 }
 
+// Google Drive'a alınan şifreli çerez yedeklerinin durumu (host cron JSON'undan).
+export interface BackupEntry {
+  name: string
+  size: number
+  modTime: string
+}
+
+export interface BackupStatus {
+  enabled: boolean
+  remote?: string
+  cron?: string
+  retention_days?: number
+  count: number
+  total_size: number
+  backups: BackupEntry[]
+  updated_at?: string
+  detail?: string
+}
+
+// Toplu canlılık taraması — havuzdaki tüm çerezlerin canlı/ölü durumu (hesap kırılımlı).
+export interface LiveScanAccount {
+  alive: number
+  dead: number
+  skipped: number
+  deleted: number
+}
+
+export interface LiveScanStatus {
+  running: boolean
+  done: boolean
+  total: number
+  checked: number
+  alive: number
+  dead: number
+  skipped: number
+  deleted: number
+  per_account: Record<string, LiveScanAccount>
+  auto_delete: boolean
+  started_at: string | null
+  updated_at: string | null
+}
+
 export interface FarmingLogEntry {
   message: string
   level: string
@@ -103,11 +145,38 @@ export interface KeepAliveStatus {
   processed?: number
 }
 
+export interface TelegramEventFlags {
+  batch_done: boolean
+  backup_done: boolean
+  liveness_alert: boolean
+  daily_summary: boolean
+}
+
 export interface TelegramSettings {
   enabled: boolean
   bot_token: string
   chat_id: string
   configured?: boolean
+  events?: TelegramEventFlags
+  liveness_threshold?: number
+}
+
+// Üretim zamanlayıcı yapılandırması (kullanıcı ayarları — çalışma durumu ayrı, panelde gösterilmez)
+export interface ScheduleConfig {
+  enabled: boolean
+  time: string
+  count_per_account: number
+  mode: 'SAFE' | 'FAST' | 'TURBO'
+  lifespan_days: number
+  sector: string
+  daily_summary: boolean
+  summary_time: string
+}
+
+// Yedek sıklığı/saklama
+export interface BackupConfig {
+  interval_hours: number
+  retention_days: number
 }
 
 export type ProxyQuality = 'classic' | 'premium' | 'stealth'

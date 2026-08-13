@@ -3,6 +3,7 @@ import shutil
 import orjson
 from fastapi import APIRouter, Query, HTTPException, Depends, Request
 from fastapi.responses import FileResponse, StreamingResponse, ORJSONResponse
+from pydantic import BaseModel, Field
 from config import settings
 from services.exporter import ExporterService
 from auth import get_current_user
@@ -278,6 +279,90 @@ async def download_zip(
 async def export_stats(_user: dict = Depends(get_current_user)):
     """Havuzdaki TOPLAM üretilmiş profil (cookie) sayısı + hesap kırılımı."""
     return exporter.output_stats(settings.cookies_output_dir)
+
+
+@router.get("/export/backups")
+async def export_backups(_user: dict = Depends(get_current_user)):
+    """Google Drive'a alınan ŞİFRELİ çerez yedeklerinin durumu.
+    rclone + gdrive kimliği HOST'ta (container'da yok) → host cron'u `logs/backup_status.json`
+    yazar; backend onu okuyup panele servis eder. Dosya yoksa 'henüz yok' döner (hata değil)."""
+    path = os.path.join(os.path.realpath(settings.log_dir), "backup_status.json")
+    if not os.path.exists(path):
+        return ORJSONResponse(content={
+            "enabled": False, "count": 0, "total_size": 0, "backups": [],
+            "detail": "Yedek durumu henüz oluşmadı (ilk otomatik yedek bekleniyor).",
+        })
+    try:
+        with open(path, "rb") as f:
+            return ORJSONResponse(content=orjson.loads(f.read()))
+    except Exception:
+        return ORJSONResponse(content={
+            "enabled": False, "count": 0, "total_size": 0, "backups": [],
+            "detail": "Yedek durumu okunamadı.",
+        })
+
+
+@router.post("/export/backup-now")
+async def backup_now(_user: dict = Depends(get_current_user)):
+    """MANUEL yedek tetikler. Container rclone/gdrive'a erişemez (güvenlik: anahtar+token HOST'ta)
+    → `logs/backup_request` tetik dosyası yazar; host systemd path-unit onu ANINDA görüp
+    ozy_cookie_backup.sh'ı çalıştırır (tar+şifrele+Drive'a yükle). Panel getBackups ile takip eder."""
+    flag = os.path.join(os.path.realpath(settings.log_dir), "backup_request")
+    try:
+        with open(flag, "w") as f:
+            f.write("manual")
+        return {"started": True, "detail": "Yedekleme tetiklendi — birkaç saniye içinde Drive'a alınır."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Yedek tetiklenemedi: {e}")
+
+
+@router.post("/export/scan-live")
+async def start_live_scan(
+    request: Request,
+    auto_delete: bool | None = Query(None),
+    _user: dict = Depends(get_current_user),
+):
+    """TOPLU CANLILIK TARAMASI: havuzdaki TÜM çerezleri kendi doğum-proxy'siyle Google'a uğratıp
+    aktif mi kontrol eder (arka plan, hesap kırılımlı). Zaten çalışıyorsa yeni tur başlatmaz.
+    auto_delete verilmezse otomatik-temizlik ayarı kullanılır (ölü çerezleri siler)."""
+    from services import livescan
+    from services.automation_config import get_auto_cleanup
+    redis = request.app.state.redis
+    ad = bool(auto_delete) if auto_delete is not None else await get_auto_cleanup(redis)
+    started = livescan.start_scan(redis, auto_delete=ad)
+    return {
+        "started": started,
+        "auto_delete": ad,
+        "detail": ("Tarama başladı" + (" — ölüler silinecek." if ad else " — sonuç birkaç dakikada dolar."))
+        if started else "Tarama zaten çalışıyor.",
+    }
+
+
+@router.get("/export/scan-live")
+async def get_live_scan(request: Request, _user: dict = Depends(get_current_user)):
+    """Son/aktif toplu canlılık taramasının durumu (ilerleme + hesap kırılımı)."""
+    from services import livescan
+    return await livescan.read_scan(request.app.state.redis)
+
+
+class BackupConfigReq(BaseModel):
+    interval_hours: int = Field(6, ge=1, le=168)   # 1 saat – 7 gün
+    retention_days: int = Field(14, ge=1, le=365)
+
+
+@router.get("/export/backup-config")
+async def get_backup_config_ep(_user: dict = Depends(get_current_user)):
+    """Yedek sıklığı (saat) + saklama süresi (gün). Host cron bu dosyadan okur."""
+    from services.automation_config import get_backup_config
+    return get_backup_config()
+
+
+@router.put("/export/backup-config")
+async def put_backup_config_ep(req: BackupConfigReq, _user: dict = Depends(get_current_user)):
+    """Yedek sıklığı/saklama süresini güncelle. logs/backup_config.json'a yazılır; host uygulayıcı
+    cron'u yeni sıklığa göre günceller (~5 dk içinde), retention'ı yedek script'i her turda okur."""
+    from services.automation_config import set_backup_config
+    return set_backup_config(req.interval_hours, req.retention_days)
 
 
 @router.get("/export/all")

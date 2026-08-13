@@ -63,10 +63,14 @@ async def lifespan(app: FastAPI):
     # Keep-alive arka plan döngüsü — aktifse periyodik ping atar.
     from services.keepalive_service import keepalive_loop
     app.state.keepalive_task = asyncio.create_task(keepalive_loop(app))
+    # Zamanlayıcı döngüsü — zamanlanan üretim + günlük özet.
+    from services.scheduler import scheduler_loop
+    app.state.scheduler_task = asyncio.create_task(scheduler_loop(app))
     yield
-    task = getattr(app.state, "keepalive_task", None)
-    if task:
-        task.cancel()
+    for _tn in ("keepalive_task", "scheduler_task"):
+        _t = getattr(app.state, _tn, None)
+        if _t:
+            _t.cancel()
     await close_redis()
     await close_db()
 

@@ -3,9 +3,16 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { Send, KeyRound, Bell } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '../api/client'
-import type { TelegramSettings } from '../types'
+import type { TelegramSettings, TelegramEventFlags } from '../types'
 import GlassCard from './ui/GlassCard'
 import PanelHeader from './ui/PanelHeader'
+
+const EVENT_LABELS: { key: keyof TelegramEventFlags; label: string }[] = [
+  { key: 'batch_done', label: 'Üretim bitti' },
+  { key: 'backup_done', label: 'Yedek alındı' },
+  { key: 'liveness_alert', label: 'Canlılık düştü' },
+  { key: 'daily_summary', label: 'Günlük özet' },
+]
 
 export default function UserSettings() {
   // --- Telegram ---
@@ -13,12 +20,19 @@ export default function UserSettings() {
   const [botToken, setBotToken] = useState('')
   const [chatId, setChatId] = useState('')
   const [enabled, setEnabled] = useState(false)
+  const [events, setEvents] = useState<TelegramEventFlags>({ batch_done: true, backup_done: true, liveness_alert: true, daily_summary: true })
+  const [threshold, setThreshold] = useState(80)
   useEffect(() => {
-    if (tg) { setChatId(tg.chat_id || ''); setEnabled(!!tg.enabled) }
+    if (tg) {
+      setChatId(tg.chat_id || '')
+      setEnabled(!!tg.enabled)
+      if (tg.events) setEvents(tg.events)
+      if (typeof tg.liveness_threshold === 'number') setThreshold(tg.liveness_threshold)
+    }
   }, [tg])
 
   const saveTg = useMutation({
-    mutationFn: () => api.setTelegram({ bot_token: botToken, chat_id: chatId, enabled }),
+    mutationFn: () => api.setTelegram({ bot_token: botToken, chat_id: chatId, enabled, events, liveness_threshold: threshold }),
     onSuccess: () => { toast.success('Telegram ayarı kaydedildi'); setBotToken('') },
     onError: () => toast.error('Kaydedilemedi'),
   })
@@ -57,6 +71,26 @@ export default function UserSettings() {
           className={inputCls} autoComplete="off" />
         <input value={chatId} onChange={e => setChatId(e.target.value)}
           placeholder="Chat ID (@userinfobot ile öğren)" className={inputCls} autoComplete="off" />
+
+        {/* Hangi olaylar bildirilsin */}
+        <div className="grid grid-cols-2 gap-1.5 pt-1">
+          {EVENT_LABELS.map(ev => (
+            <label key={ev.key} className="flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer">
+              <input type="checkbox" checked={events[ev.key]} onChange={e => setEvents(s => ({ ...s, [ev.key]: e.target.checked }))} className="accent-iuGold" />
+              {ev.label}
+            </label>
+          ))}
+        </div>
+        <label className="flex items-center justify-between gap-2 text-[11px] text-slate-400">
+          <span>Canlılık uyarı eşiği</span>
+          <span className="flex items-center gap-1">
+            <input type="number" min={0} max={100} value={threshold}
+              onChange={e => setThreshold(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+              className="w-16 bg-iuNavy/50 border border-iuBorder rounded-lg px-2 py-1 text-xs text-slate-200 text-center focus:border-iuGold focus:outline-none" />
+            <span className="text-slate-500">% altına düşünce uyar</span>
+          </span>
+        </label>
+
         <div className="flex gap-2">
           <button onClick={() => saveTg.mutate()} disabled={saveTg.isPending}
             className="flex-1 py-2 rounded-lg bg-iuGold/10 text-iuGold border border-iuGold/25 hover:bg-iuGold/20 disabled:opacity-40 text-xs font-medium transition-colors">
@@ -68,7 +102,7 @@ export default function UserSettings() {
           </button>
         </div>
         <p className="text-[10px] text-slate-600 leading-snug">
-          Üretim bittiğinde (başarılı/başarısız özeti) Telegram'a mesaj gelir. Token maskeli saklanır, panelde tam gösterilmez.
+          Seçili olaylarda Telegram'a mesaj gelir. Token maskeli saklanır, panelde tam gösterilmez.
         </p>
       </div>
 

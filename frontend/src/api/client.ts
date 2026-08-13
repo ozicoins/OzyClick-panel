@@ -215,8 +215,29 @@ export const api = {
   // Kullanıcı ayarları — Telegram bildirimleri + şifre değiştirme
   getTelegram: () =>
     request<import('../types').TelegramSettings>('/api/v1/settings/telegram'),
-  setTelegram: (body: { bot_token: string; chat_id: string; enabled: boolean }) =>
+  setTelegram: (body: {
+    bot_token: string; chat_id: string; enabled: boolean
+    events?: Partial<import('../types').TelegramEventFlags>; liveness_threshold?: number
+  }) =>
     request<import('../types').TelegramSettings>('/api/v1/settings/telegram', { method: 'PUT', body: JSON.stringify(body) }),
+
+  // Üretim zamanlayıcı
+  getSchedule: () =>
+    request<import('../types').ScheduleConfig>('/api/v1/settings/schedule'),
+  setSchedule: (patch: Partial<import('../types').ScheduleConfig>) =>
+    request<import('../types').ScheduleConfig>('/api/v1/settings/schedule', { method: 'PUT', body: JSON.stringify(patch) }),
+
+  // Otomatik ölü-çerez temizliği
+  getAutoCleanup: () =>
+    request<{ enabled: boolean }>('/api/v1/settings/auto-cleanup'),
+  setAutoCleanup: (enabled: boolean) =>
+    request<{ enabled: boolean }>('/api/v1/settings/auto-cleanup', { method: 'PUT', body: JSON.stringify({ enabled }) }),
+
+  // Yedek sıklığı/saklama
+  getBackupConfig: () =>
+    request<import('../types').BackupConfig>('/api/v1/export/backup-config'),
+  setBackupConfig: (body: import('../types').BackupConfig) =>
+    request<import('../types').BackupConfig>('/api/v1/export/backup-config', { method: 'PUT', body: JSON.stringify(body) }),
   testTelegram: () =>
     request<{ ok: boolean; detail: string }>('/api/v1/settings/telegram/test', { method: 'POST' }),
   changePassword: (body: { current_password: string; new_password: string }) =>
@@ -237,6 +258,20 @@ export const api = {
   // Havuzdaki TOPLAM üretilmiş profil sayısı + hesap kırılımı.
   getExportStats: () =>
     request<{ total_profiles: number; accounts: number; breakdown: { account: string; profiles: number }[] }>('/api/v1/export/stats'),
+  // Google Drive'a alınan şifreli çerez yedeklerinin durumu (adet, boyut, son yedekler).
+  getBackups: () =>
+    request<import('../types').BackupStatus>('/api/v1/export/backups'),
+  // MANUEL yedek tetikle (host systemd path-unit anında çalıştırır).
+  backupNow: () =>
+    request<{ started: boolean; detail: string }>('/api/v1/export/backup-now', { method: 'POST' }),
+  // TOPLU CANLILIK TARAMASI — tüm çerezleri doğum-proxy'siyle kontrol et (arka plan).
+  // autoDelete verilmezse sunucudaki otomatik-temizlik ayarı geçerli olur.
+  startLiveScan: (autoDelete?: boolean) =>
+    request<{ started: boolean; detail: string; auto_delete?: boolean }>(
+      `/api/v1/export/scan-live${autoDelete === undefined ? '' : `?auto_delete=${autoDelete}`}`,
+      { method: 'POST' }),
+  getLiveScan: () =>
+    request<import('../types').LiveScanStatus>('/api/v1/export/scan-live'),
   // TÜM hesapların TÜM profillerini tek ZIP indir (adswhite/gologin/universal/netscape/raw).
   downloadAll: (format: 'adswhite' | 'gologin' | 'universal' | 'netscape' | 'raw') =>
     download(`/api/v1/export/all?format=${format}`, `havuz_tumu_${format === 'adswhite' ? 'ozyclick' : format}.zip`),

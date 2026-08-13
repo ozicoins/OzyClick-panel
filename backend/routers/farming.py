@@ -101,11 +101,11 @@ async def _run_farming(
                         batch.status = BatchStatus.FAILED
                     batch.completed_at = datetime.now(timezone.utc)
                 await db.commit()
-        # Telegram bildirimi (ayarlıysa) — üretim bitti özeti.
+        # Telegram bildirimi (olay açıksa) — üretim bitti özeti.
         try:
-            from services.user_settings import send_telegram
+            from services.user_settings import notify
             _st = "✅ tamamlandı" if result["failed"] == 0 else ("⚠️ kısmen tamamlandı" if result["completed"] > 0 else "❌ başarısız")
-            await send_telegram(redis, f"<b>OzyClick</b> · Üretim {_st}\n👍 Başarılı: {result['completed']}  ·  👎 Başarısız: {result['failed']}")
+            await notify(redis, "batch_done", f"<b>OzyClick</b> · Üretim {_st}\n👍 Başarılı: {result['completed']}  ·  👎 Başarısız: {result['failed']}")
         except Exception:
             pass
 
@@ -167,6 +167,14 @@ async def _run_farming_multi(
                         batch.status = BatchStatus.FAILED
                     batch.completed_at = datetime.now(timezone.utc)
                 await db.commit()
+        # Telegram bildirimi (olay açıksa) — çoklu-hesap üretim bitti özeti.
+        try:
+            from services.user_settings import notify
+            _st = "✅ tamamlandı" if result["failed"] == 0 else ("⚠️ kısmen tamamlandı" if result["completed"] > 0 else "❌ başarısız")
+            await notify(redis, "batch_done",
+                         f"<b>OzyClick</b> · Tüm-havuz üretim {_st}\n👍 Başarılı: {result['completed']}  ·  👎 Başarısız: {result['failed']}")
+        except Exception:
+            pass
     except Exception as e:
         async with db_session_factory() as db:
             batch = await db.get(Batch, batch_id)
@@ -180,15 +188,9 @@ async def _run_farming_multi(
         _active_engines.pop(str(batch_id), None)
 
 
-@router.post("/generate-farm-all", response_model=FarmResponse)
-async def start_farming_all(
-    req: FarmAllRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
-):
-    """Havuzdaki TÜM hesapları tek batch'te işler — her hesap için count_per_account profil.
-    Farklı hesaplar farklı TOTP → tam paralel (tek maile yığmaktan hızlı ve güvenli)."""
+async def launch_farm_all(req: "FarmAllRequest", redis, db: AsyncSession, user_id_val=None) -> dict:
+    """Tüm-havuz üretimini başlatan ORTAK yol (HTTP endpoint + zamanlayıcı bunu çağırır).
+    Döner: {batch_id, accounts, total, message}. Çalışan batch varsa 409 HTTPException atar."""
     # Eşzamanlı batch guard: iki üretim = 2 tarayıcı havuzu = OOM riski. Tek seferde bir batch.
     if _active_engines:
         raise HTTPException(status_code=409, detail="Zaten çalışan bir üretim var. Önce onu durdurun.")
@@ -198,7 +200,6 @@ async def start_farming_all(
     engine = FarmingEngine()
     _active_engines[str(batch_id)] = engine
     from services.account_store import get_accounts
-    redis = request.app.state.redis
     raw = await get_accounts(redis, include_sensitive=True)
     if not raw:
         _active_engines.pop(str(batch_id), None)
@@ -222,12 +223,6 @@ async def start_farming_all(
         raise HTTPException(status_code=400, detail="Havuzda parolası olan hesap yok")
 
     total = req.count_per_account * len(accounts)
-    user_id_val = None
-    try:
-        if _user and _user.get("id"):
-            user_id_val = uuid.UUID(_user["id"])
-    except Exception:
-        pass
 
     batch = Batch(
         id=batch_id, user_id=user_id_val, total_profiles=total, sector=req.sector,
@@ -260,11 +255,29 @@ async def start_farming_all(
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
 
-    return FarmResponse(
-        batch_id=str(batch.id),
-        status="FARMING",
-        message=f"{len(accounts)} hesap × {req.count_per_account} = {total} profil ({req.mode}) başlatıldı.",
-    )
+    return {
+        "batch_id": str(batch.id), "accounts": len(accounts), "total": total,
+        "message": f"{len(accounts)} hesap × {req.count_per_account} = {total} profil ({req.mode}) başlatıldı.",
+    }
+
+
+@router.post("/generate-farm-all", response_model=FarmResponse)
+async def start_farming_all(
+    req: FarmAllRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(get_current_user),
+):
+    """Havuzdaki TÜM hesapları tek batch'te işler — her hesap için count_per_account profil.
+    Farklı hesaplar farklı TOTP → tam paralel (tek maile yığmaktan hızlı ve güvenli)."""
+    user_id_val = None
+    try:
+        if _user and _user.get("id"):
+            user_id_val = uuid.UUID(_user["id"])
+    except Exception:
+        pass
+    res = await launch_farm_all(req, request.app.state.redis, db, user_id_val)
+    return FarmResponse(batch_id=res["batch_id"], status="FARMING", message=res["message"])
 
 
 @router.post("/generate-farm", response_model=FarmResponse)

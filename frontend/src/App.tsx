@@ -11,9 +11,8 @@ import OzyLogo from './components/ui/OzyLogo'
 import Header from './components/Header'
 import KeywordManager from './components/KeywordManager'
 import FarmingControlHub from './components/FarmingControlHub'
-import CookieInspector from './components/CookieInspector'
-import ProxyMapTable from './components/ProxyMapTable'
 import ExporterPanel from './components/ExporterPanel'
+import PoolHealthCard from './components/PoolHealthCard'
 import WorkerMonitor from './components/WorkerMonitor'
 import GmailPoolManager from './components/GmailPoolManager'
 import SessionKeepAlive from './components/SessionKeepAlive'
@@ -22,6 +21,7 @@ import SystemStatus from './components/SystemStatus'
 import ProxySettings from './components/ProxySettings'
 import RunModeSettings from './components/RunModeSettings'
 import UserSettings from './components/UserSettings'
+import AutomationSettings from './components/AutomationSettings'
 import TargetSitesManager from './components/TargetSitesManager'
 
 type TabId = 'home' | 'farming' | 'outputs' | 'settings'
@@ -314,35 +314,35 @@ export default function App() {
           </div>
         )}
 
-        {/* ÇIKTILAR — üretilen profillerin incelenmesi/indirilmesi */}
+        {/* ÇIKTILAR — havuz sağlığı (toplu canlılık) + toplu indirme + Drive yedekleri.
+            items-stretch (varsayılan) → iki kart eşit yükseklikte, alt kenarları hizalı. */}
         {tab === 'outputs' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-4xl mx-auto">
             <ErrorBoundary>
-              <CookieInspector email={activeEmail} />
+              <PoolHealthCard />
             </ErrorBoundary>
             <ErrorBoundary>
-              <ProxyMapTable email={activeEmail} />
-            </ErrorBoundary>
-            <ErrorBoundary>
-              <ExporterPanel email={activeEmail} />
+              <ExporterPanel email="" />
             </ErrorBoundary>
           </div>
         )}
 
-        {/* AYARLAR — çalışma modu, proxy (ScrapingBee havuz) ve keep-alive */}
+        {/* AYARLAR — düz 2×2 grid: her satırdaki iki kart eşit yükseklikte (altları hizalı).
+            Uzun kartlar (Proxy + Otomasyon) üst satırda, kısalar (Keep-Alive + Çalışma Modu) altta. */}
         {tab === 'settings' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <ErrorBoundary>
               <ProxySettings />
             </ErrorBoundary>
-            <div className="space-y-4">
-              <ErrorBoundary>
-                <RunModeSettings />
-              </ErrorBoundary>
-              <ErrorBoundary>
-                <SessionKeepAlive />
-              </ErrorBoundary>
-            </div>
+            <ErrorBoundary>
+              <AutomationSettings />
+            </ErrorBoundary>
+            <ErrorBoundary>
+              <SessionKeepAlive />
+            </ErrorBoundary>
+            <ErrorBoundary>
+              <RunModeSettings />
+            </ErrorBoundary>
           </div>
         )}
       </div>

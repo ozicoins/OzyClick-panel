@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Download, FileJson, Archive, Trash2, RefreshCw, Package } from 'lucide-react'
+import { Download, FileJson, Archive, Trash2, RefreshCw, Package, Cloud, CloudUpload } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '../api/client'
 import GlassCard from './ui/GlassCard'
@@ -11,6 +11,23 @@ interface Props {
 }
 
 type AllFmt = 'adswhite' | 'gologin' | 'universal' | 'netscape' | 'raw'
+
+// Bayt → okunaklı (0 B / 940 KB / 7.4 MB)
+const humanSize = (n: number): string => {
+  if (!n || n < 0) return '0 B'
+  const u = ['B', 'KB', 'MB', 'GB']
+  let i = 0, v = n
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++ }
+  return `${v.toFixed(i === 0 || v >= 100 ? 0 : 1)} ${u[i]}`
+}
+
+// ozy_cookies_20260813_190148.tar.gz.enc → "13.08.2026 19:01"
+const backupDate = (name: string, modTime?: string): string => {
+  const m = name.match(/(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/)
+  if (m) return `${m[3]}.${m[2]}.${m[1]} ${m[4]}:${m[5]}`
+  if (modTime) return new Date(modTime).toLocaleString('tr-TR')
+  return name
+}
 
 export default function ExporterPanel({ email }: Props) {
   const [busy, setBusy] = useState<string | null>(null)
@@ -25,6 +42,45 @@ export default function ExporterPanel({ email }: Props) {
     refetchInterval: 5_000,
   })
   const total = stats?.total_profiles ?? 0
+
+  // MANUEL yedek: tetiklenince yeni yedek Drive'da görünene kadar sık (3sn) yoklar.
+  const [backingUp, setBackingUp] = useState(false)
+  const beforeRef = useRef<string | undefined>(undefined)   // tetikten önceki en son yedek adı
+  const startedRef = useRef(0)
+
+  // Google Drive şifreli yedek durumu (host cron ~30 dk; manuel yedekte 3sn'ye hızlanır).
+  const { data: backups } = useQuery({
+    queryKey: ['drive-backups'],
+    queryFn: () => api.getBackups(),
+    refetchInterval: backingUp ? 3_000 : 60_000,
+  })
+
+  // Tetiklenen manuel yedek tamamlandı mı? (yeni dosya adı belirdiyse VEYA 2 dk zaman aşımı)
+  useEffect(() => {
+    if (!backingUp) return
+    const latest = backups?.backups?.[0]?.name
+    if (latest && latest !== beforeRef.current) {
+      setBackingUp(false)
+      toast.success('Yeni yedek alındı ✓')
+    } else if (Date.now() - startedRef.current > 120_000) {
+      setBackingUp(false)
+      toast('Yedek arka planda sürüyor — birazdan listede görünecek', { icon: '⏳' })
+    }
+  }, [backups, backingUp])
+
+  const doBackupNow = async () => {
+    if (backingUp) return
+    beforeRef.current = backups?.backups?.[0]?.name
+    startedRef.current = Date.now()
+    setBackingUp(true)
+    try {
+      const res = await api.backupNow()
+      toast.success(res.detail || 'Yedekleme başlatıldı…')
+    } catch (e) {
+      setBackingUp(false)
+      toast.error(e instanceof Error ? e.message : 'Yedekleme başlatılamadı')
+    }
+  }
 
   // TÜM HAVUZ toplu indir (seçilen format)
   const downloadAll = async (fmt: AllFmt) => {
@@ -117,6 +173,61 @@ export default function ExporterPanel({ email }: Props) {
         <p className="text-[10px] text-slate-600 leading-snug">
           İstediğin kadar kez indirebilirsin. <b className="text-slate-400">OzyClick ZIP</b>'i çıkar → OzyClick'te "Cookie Klasörü" olarak yükle.
         </p>
+      </div>
+
+      {/* GOOGLE DRIVE YEDEKLERİ — otomatik şifreli yedeklerin durumu (adet/boyut/son yedekler) */}
+      <div className="bg-iuNavy/30 rounded-lg p-3 border border-iuBorder space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <Cloud className="w-3.5 h-3.5 text-iuGold" aria-hidden="true" />
+            <span className="text-[11px] text-slate-500 uppercase tracking-wider">Drive Yedekleri</span>
+          </div>
+          {backups?.enabled && (
+            <span className="text-[10px] text-emerald-400 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-dot inline-block" /> otomatik · şifreli
+            </span>
+          )}
+        </div>
+
+        {/* MANUEL yedek — otomatik 6 saatliğe ek, anında Drive'a alır */}
+        <button
+          onClick={doBackupNow}
+          disabled={backingUp}
+          className="w-full py-2 rounded-lg bg-iuGold/10 text-iuGold border border-iuGold/25 hover:bg-iuGold/20 disabled:opacity-50 text-xs flex items-center justify-center gap-1.5 transition-colors">
+          <CloudUpload className={`w-3.5 h-3.5 ${backingUp ? 'animate-pulse' : ''}`} aria-hidden="true" />
+          {backingUp ? 'Yedekleniyor…' : 'Şimdi Yedekle'}
+        </button>
+
+        {!backups ? (
+          <p className="text-[11px] text-slate-600">Yükleniyor…</p>
+        ) : backups.count === 0 ? (
+          <p className="text-[11px] text-slate-600">{backups.detail || 'Henüz yedek yok.'}</p>
+        ) : (
+          <>
+            <div className="flex items-baseline justify-between">
+              <span className="text-[10px] text-slate-500">
+                {backups.cron}{backups.retention_days ? ` · ${backups.retention_days}g saklama` : ''}
+              </span>
+              <span className="text-base font-bold text-iuGold leading-none">
+                {backups.count}
+                <span className="text-[10px] text-slate-500 font-normal ml-1">yedek · {humanSize(backups.total_size)}</span>
+              </span>
+            </div>
+            <div className="max-h-28 overflow-y-auto space-y-0.5 pr-1">
+              {backups.backups.map(b => (
+                <div key={b.name} className="flex items-center justify-between text-[10px] font-mono border-b border-iuBorder/20 py-0.5">
+                  <span className="text-slate-300">{backupDate(b.name, b.modTime)}</span>
+                  <span className="text-slate-500">{humanSize(b.size)}</span>
+                </div>
+              ))}
+            </div>
+            {backups.updated_at && (
+              <p className="text-[10px] text-slate-600">
+                Son kontrol: {new Date(backups.updated_at).toLocaleString('tr-TR')} · Google Drive
+              </p>
+            )}
+          </>
+        )}
       </div>
 
       {/* SEÇİLİ HESAP — tek hesap indir/temizle */}
