@@ -14,6 +14,10 @@ export function useFarmingLogs(enabled: boolean, maxLogs = 200) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const qc = useQueryClient()
   const lastInvalidateRef = useRef(0)   // çıktı-sayısı tazelemesini hafif throttle et
+  // PERF: gelen logları tamponla, ~350ms'de bir TOPLUCA state'e yaz → Fast/Turbo'da onlarca
+  // log/sn'lik sel her mesajda re-render tetiklemesin (panel kasmasının ana sebebi).
+  const bufRef = useRef<FarmingLogEntry[]>([])
+  const flushRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const connect = useCallback(() => {
     if (stoppedRef.current) return
@@ -32,14 +36,22 @@ export function useFarmingLogs(enabled: boolean, maxLogs = 200) {
     ws.onmessage = (e) => {
       try {
         const entry: FarmingLogEntry = JSON.parse(e.data)
-        setLogs(prev => [...prev.slice(-(maxLogs - 1)), entry])
-        // CANLI ÇIKTI SAYISI: her BAŞARILI profil (✓ veya [DRY]) diske yazıldığı an, "Çıktılar"
-        // havuz sayısını ANINDA tazele → 15sn'lik periyodik yenilemeyi beklemeden her başarıda artar.
-        // Hafif throttle (400ms) → DRY modda hızlı akışta gereksiz çoklu refetch olmasın.
+        // Tampona ekle; state flush'ı zamanlanmadıysa ~350ms sonrası için zamanla (batch re-render).
+        bufRef.current.push(entry)
+        if (!flushRef.current) {
+          flushRef.current = setTimeout(() => {
+            flushRef.current = null
+            const batch = bufRef.current
+            bufRef.current = []
+            if (batch.length) setLogs(prev => [...prev, ...batch].slice(-maxLogs))
+          }, 350)
+        }
+        // CANLI ÇIKTI SAYISI: ✓/[DRY] gelince "Çıktılar" havuz sayısını tazele — throttle 1.5sn
+        // (Fast/Turbo'da çok sık invalidate re-fetch fırtınası yaratmasın).
         const m = entry.message || ''
         if (m.includes('✓') || m.includes('[DRY]')) {
           const now = Date.now()
-          if (now - lastInvalidateRef.current > 400) {
+          if (now - lastInvalidateRef.current > 1500) {
             lastInvalidateRef.current = now
             qc.invalidateQueries({ queryKey: ['export-stats'] })
           }
@@ -71,11 +83,13 @@ export function useFarmingLogs(enabled: boolean, maxLogs = 200) {
     return () => {
       stoppedRef.current = true  // temizlikte otomatik yeniden bağlanmayı durdur
       if (timerRef.current) clearTimeout(timerRef.current)  // bekleyen reconnect'i iptal et
+      if (flushRef.current) { clearTimeout(flushRef.current); flushRef.current = null }
+      bufRef.current = []
       wsRef.current?.close()
     }
   }, [enabled, connect])
 
-  const clearLogs = useCallback(() => setLogs([]), [])
+  const clearLogs = useCallback(() => { bufRef.current = []; setLogs([]) }, [])
 
   return { logs, connected, clearLogs }
 }

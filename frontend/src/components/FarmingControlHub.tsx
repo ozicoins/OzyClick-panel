@@ -243,7 +243,9 @@ export default function FarmingControlHub({
         {logs.length === 0 && (
           <p className="text-slate-600">Farming başladığında loglar burada görünecek...</p>
         )}
-        {logs.map((log, i) => (
+        {/* PERF: yalnız son 40 log render edilir (kap kaydırılabilir) → Fast/Turbo'da 200 DOM
+            node'u her flush'ta yeniden çizmek kasmaya yol açıyordu. */}
+        {logs.slice(-40).map((log, i) => (
           <p key={i} className={
             log.level === 'ERROR' ? 'text-red-400' :
             log.level === 'WARNING' ? 'text-amber-400' : 'text-emerald-400'
