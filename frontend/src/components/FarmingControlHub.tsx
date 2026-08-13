@@ -8,11 +8,10 @@ import GlassCard from './ui/GlassCard'
 import PanelHeader from './ui/PanelHeader'
 
 const MODES = [
-  { id: 'SAFE', label: 'Safe', icon: Shield, desc: 'yavaş · aynı anda 3 tarayıcı' },
+  // 8 vCPU / 8GB-container'a göre optimize (aynı anda açılan Chromium sayısı).
+  { id: 'SAFE', label: 'Safe', icon: Shield, desc: 'hafif · aynı anda 4 tarayıcı' },
   { id: 'FAST', label: 'Fast', icon: Zap, desc: 'dengeli · aynı anda 10 tarayıcı' },
-  // NOT: Turbo nominal 80 worker ama koda gömülü clamp aynı anda tarayıcıyı browser_pool_size
-  // (=10) ile sınırlar → gerçekte 10 tarayıcı, master-login+klon ile daha hızlı (ayrı 2FA yok).
-  { id: 'TURBO', label: 'Turbo', icon: Rocket, desc: 'en hızlı · master-login+klon · yine 10 tarayıcı' },
+  { id: 'TURBO', label: 'Turbo', icon: Rocket, desc: 'MAX · master-login+klon · aynı anda 14 tarayıcı' },
 ] as const
 
 // İdeal: hesap başına düşük tut (Google flag'lemesin). Tek-hesapta toplam, çoklu-hesapta

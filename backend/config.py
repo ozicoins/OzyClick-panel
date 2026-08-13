@@ -48,9 +48,11 @@ class Settings(BaseSettings):
     # Farming
     default_farming_mode: Literal["SAFE", "FAST", "TURBO"] = "SAFE"
     max_concurrent_batches: int = 3
-    turbo_worker_count: int = 80
-    fast_worker_count: int = 10
-    safe_worker_count: int = 3
+    # 8 vCPU / 8GB-container'a göre optimize (ölçüm: ~64MB/browser floor, ~350MB peak target-site).
+    # num_workers = min(mode, browser_pool_size) → turbo pool tavanı=14 (14×350MB≈4.9GB < 8GB).
+    turbo_worker_count: int = 14   # MAX — master-login+klon; aynı anda 14 tarayıcı
+    fast_worker_count: int = 10    # dengeli
+    safe_worker_count: int = 4     # hafif
     master_session_refresh_minutes: int = 90
     checkpoint_interval: int = 100
     worker_timeout: int = 300  # saniye/profil — gerçek 2FA login + TOTP seri-bekleme + ısıtma + hedef
@@ -68,7 +70,7 @@ class Settings(BaseSettings):
 
     # Playwright
     playwright_browser: str = "chromium"
-    browser_pool_size: int = 10
+    browser_pool_size: int = 14   # MAX eşzamanlı Chromium tavanı (8 vCPU / 8GB-container güvenli sınırı)
     headless: bool = True
     # GERÇEK RENDER: tarayıcı gerçek Chrome render motorunu kullanır (bot tespiti düşer,
     # Google login başarısı + oturum ömrü artar). Ekran GÖSTERİLMEZ:
