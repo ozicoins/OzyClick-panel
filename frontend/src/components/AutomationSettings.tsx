@@ -38,13 +38,15 @@ export default function AutomationSettings() {
   const { data: sched } = useQuery<ScheduleConfig>({ queryKey: ['schedule'], queryFn: () => api.getSchedule() })
   const [s, setS] = useState<Partial<ScheduleConfig>>({})
   useEffect(() => { if (sched) setS(sched) }, [sched])
-  // Ayarları kaydet — enabled BURADA yok; aç/kapa anlık Durdur/Devam butonuyla yönetilir.
+  // "Kaydet ve Başlat" — ayarları kaydeder VE zamanlayıcıyı AÇAR (enabled=true). Kullanıcı
+  // beklentisi: saati ayarlayıp kaydedince çalışsın. Duraklatmak için banner'daki 'Durdur'.
   const saveSched = useMutation({
     mutationFn: () => api.setSchedule({
+      enabled: true,
       time: s.time, mode: s.mode, count_per_account: s.count_per_account,
       lifespan_days: s.lifespan_days, sector: s.sector, daily_summary: s.daily_summary, summary_time: s.summary_time,
     }),
-    onSuccess: (d) => { qc.setQueryData(['schedule'], d); qc.invalidateQueries({ queryKey: ['schedule-status'] }); toast.success('Zamanlayıcı ayarı kaydedildi') },
+    onSuccess: (d) => { qc.setQueryData(['schedule'], d); qc.invalidateQueries({ queryKey: ['schedule-status'] }); toast.success('Zamanlayıcı kaydedildi ve BAŞLATILDI ▶') },
     onError: (e: any) => toast.error(e?.message || 'Kaydedilemedi'),
   })
 
@@ -136,12 +138,12 @@ export default function AutomationSettings() {
           <input type="time" value={s.summary_time || '09:00'} onChange={e => setS(v => ({ ...v, summary_time: e.target.value }))} className={inputCls} />
         </label>
         <button onClick={() => saveSched.mutate()} disabled={saveSched.isPending}
-          className="w-full py-2 rounded-lg bg-iuGold/10 text-iuGold border border-iuGold/25 hover:bg-iuGold/20 disabled:opacity-40 text-xs font-medium transition-colors">
-          {saveSched.isPending ? 'Kaydediliyor...' : 'Zamanlayıcıyı Kaydet'}
+          className="w-full py-2 rounded-lg btn-gold font-semibold text-xs disabled:opacity-40">
+          {saveSched.isPending ? 'Kaydediliyor...' : '💾 Kaydet ve Başlat'}
         </button>
         <p className="text-[10px] text-slate-600 leading-snug">
-          Açıkken her gün belirtilen saatte (<b className="text-slate-400">Türkiye saati</b>) havuzdaki TÜM hesaplar için üretim başlar.
-          <b className="text-slate-400"> Çakışma yok:</b> o an aktif üretim varsa VEYA o gün zaten (manuel/otomatik) üretim yapıldıysa atlanır. Durdur/Devam ile istediğin an kontrol edersin.
+          <b className="text-slate-400">Kaydet ve Başlat</b> ile açılır → her gün belirtilen saatte (<b className="text-slate-400">Türkiye saati</b>) havuzdaki TÜM hesaplar için üretim başlar. Duraklatmak için üstteki <b className="text-slate-400">Durdur</b>.
+          <b className="text-slate-400"> Çakışma yok:</b> o an aktif üretim varsa VEYA o gün zaten (manuel/otomatik) üretim yapıldıysa atlanır.
         </p>
       </div>
 
