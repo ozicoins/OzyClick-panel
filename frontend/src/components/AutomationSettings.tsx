@@ -94,15 +94,19 @@ export default function AutomationSettings() {
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 text-[11px] flex-wrap">
               <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${schedStatus?.enabled ? 'bg-emerald-400' : 'bg-slate-600'}`} />
-              <span className={schedStatus?.enabled ? 'text-emerald-400 font-medium' : 'text-slate-500'}>{schedStatus?.enabled ? 'Açık' : 'Kapalı'}</span>
-              {schedStatus?.enabled && <span className="text-slate-400">· Sonraki: {fmtNext(schedStatus.next_run)}</span>}
+              <span className={schedStatus?.enabled ? 'text-emerald-400 font-medium' : 'text-slate-400 font-medium'}>{schedStatus?.enabled ? 'Açık' : 'Kapalı'}</span>
+              {schedStatus?.enabled
+                ? <span className="text-slate-400">· Sonraki: {fmtNext(schedStatus.next_run)}</span>
+                : <span className="text-slate-500">· {schedStatus?.time || s.time || '—'}'e ayarlı</span>}
               {schedStatus?.running && <span className="text-iuGold">· ▶ üretim çalışıyor</span>}
             </div>
-            <div className="text-[10px] text-slate-600 mt-0.5">Son çalışma: {fmtLast(schedStatus?.last_run)}</div>
+            <div className="text-[10px] text-slate-600 mt-0.5">
+              {schedStatus?.enabled ? `Son çalışma: ${fmtLast(schedStatus?.last_run)}` : 'Başlatmak için sağdaki “Başlat”a bas'}
+            </div>
           </div>
           <button onClick={() => togglePause.mutate()} disabled={togglePause.isPending}
-            className={`px-3 py-1.5 rounded-lg text-[11px] font-medium flex-shrink-0 border transition-colors disabled:opacity-40 ${schedStatus?.enabled ? 'bg-red-500/10 text-red-400 border-red-500/25 hover:bg-red-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25 hover:bg-emerald-500/20'}`}>
-            {togglePause.isPending ? '...' : (schedStatus?.enabled ? 'Durdur' : 'Devam Et')}
+            className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold flex-shrink-0 border transition-colors disabled:opacity-40 ${schedStatus?.enabled ? 'bg-red-500/10 text-red-400 border-red-500/25 hover:bg-red-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25 hover:bg-emerald-500/20'}`}>
+            {togglePause.isPending ? '...' : (schedStatus?.enabled ? 'Durdur' : 'Başlat')}
           </button>
         </div>
         <div className="grid grid-cols-2 gap-2">

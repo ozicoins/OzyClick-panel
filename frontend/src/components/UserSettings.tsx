@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Send, KeyRound, Bell } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '../api/client'
@@ -15,6 +15,7 @@ const EVENT_LABELS: { key: keyof TelegramEventFlags; label: string }[] = [
 ]
 
 export default function UserSettings() {
+  const qc = useQueryClient()
   // --- Telegram ---
   const { data: tg } = useQuery<TelegramSettings>({ queryKey: ['telegram-settings'], queryFn: () => api.getTelegram() })
   const [botToken, setBotToken] = useState('')
@@ -33,7 +34,11 @@ export default function UserSettings() {
 
   const saveTg = useMutation({
     mutationFn: () => api.setTelegram({ bot_token: botToken, chat_id: chatId, enabled, events, liveness_threshold: threshold }),
-    onSuccess: () => { toast.success('Telegram ayarı kaydedildi'); setBotToken('') },
+    onSuccess: (d) => {
+      qc.setQueryData(['telegram-settings'], d)   // modal + ana sayfa göstergesi anında güncellensin
+      toast.success('Telegram ayarı kaydedildi')
+      setBotToken('')
+    },
     onError: () => toast.error('Kaydedilemedi'),
   })
   const testTg = useMutation({
@@ -101,8 +106,17 @@ export default function UserSettings() {
             <Send className="w-3.5 h-3.5" /> Test
           </button>
         </div>
+        {/* Hazırlık durumu — neyin eksik olduğunu net söyler (kayıtlı duruma göre) */}
+        {tg?.configured && (
+          <p className={`text-[10px] font-medium ${!tg.chat_id || !tg.enabled ? 'text-amber-400' : 'text-emerald-400'}`}>
+            {!tg.chat_id ? '⚠ chat_id eksik — gir ve Kaydet'
+              : !tg.enabled ? '⚠ Kapalı — "Açık"ı işaretle ve Kaydet'
+              : '✓ Hazır — bildirimler açık ve chat_id tanımlı'}
+          </p>
+        )}
         <p className="text-[10px] text-slate-600 leading-snug">
           Seçili olaylarda Telegram'a mesaj gelir. Token maskeli saklanır, panelde tam gösterilmez.
+          <b className="text-slate-400"> chat_id</b> için: bota bir mesaj at, sonra <b className="text-slate-400">@userinfobot</b>'tan ID'ni al.
         </p>
       </div>
 

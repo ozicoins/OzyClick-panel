@@ -1,11 +1,22 @@
+import { useQuery } from '@tanstack/react-query'
 import { useSystemHealthDetailed } from '../hooks/useHealth'
 import { HardDrive, Chrome, Database, Bell } from 'lucide-react'
+import { api } from '../api/client'
 import GlassCard from './ui/GlassCard'
 import PanelHeader from './ui/PanelHeader'
 import Skeleton from './ui/Skeleton'
 
 export default function SystemStatus() {
   const { data, isLoading } = useSystemHealthDetailed()
+  // Gerçek Telegram durumu (aynı query key → UserSettings kaydedince burası da tazelenir).
+  const { data: tg } = useQuery({ queryKey: ['telegram-settings'], queryFn: () => api.getTelegram() })
+  const tgStatus = !tg?.configured
+    ? { text: 'Yapılandırılmadı', cls: 'text-slate-500' }
+    : !tg?.chat_id
+    ? { text: 'chat_id eksik', cls: 'text-amber-400' }
+    : !tg?.enabled
+    ? { text: 'Kapalı', cls: 'text-amber-400' }
+    : { text: 'Açık ✓', cls: 'text-emerald-400' }
 
   if (isLoading) {
     return (
@@ -77,9 +88,9 @@ export default function SystemStatus() {
         <div className="bg-iuNavy/30 rounded-lg p-2.5">
           <div className="flex items-center gap-1.5 mb-1">
             <Bell className="w-3 h-3 text-slate-500" aria-hidden="true" />
-            <span className="text-[10px] text-slate-500">Telegram</span>
+            <span className="text-[10px] text-slate-500">Telegram Bildirimleri</span>
           </div>
-          <p className="text-xs text-slate-500">Yapılandırılmadı</p>
+          <p className={`text-xs ${tgStatus.cls}`}>{tgStatus.text}</p>
         </div>
       </div>
     </GlassCard>
