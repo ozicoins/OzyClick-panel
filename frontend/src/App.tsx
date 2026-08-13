@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { LayoutDashboard, Play, Cookie, Settings } from 'lucide-react'
+import { LayoutDashboard, Play, Cookie, Settings, X } from 'lucide-react'
 import { api, setToken, isAuthed, clearToken, setAuthExpiredHandler } from './api/client'
 import { useFarmingLogs } from './hooks/useFarmingLogs'
 import type { GmailAccount } from './types'
@@ -116,6 +116,7 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
 export default function App() {
   const [authenticated, setAuthenticated] = useState(isAuthed())
   const [tab, setTab] = useState<TabId>('home')
+  const [showSettings, setShowSettings] = useState(false)   // header ⚙️ → Kullanıcı Ayarları modalı
   const [accounts, setAccounts] = useState<GmailAccount[]>([])
   const [activeEmail, setActiveEmail] = useState('')
   const [sector, setSector] = useState('Alışveriş (E-Ticaret Harmanı)')
@@ -211,7 +212,7 @@ export default function App() {
     <>
       <div className="min-h-screen p-3 sm:p-4 space-y-4 max-w-[1600px] mx-auto above-texture">
         <ErrorBoundary fallbackTitle="Header yüklenemedi">
-          <Header activeEmail={activeEmail} onLogout={handleLogout} />
+          <Header activeEmail={activeEmail} onLogout={handleLogout} onOpenSettings={() => setShowSettings(true)} />
         </ErrorBoundary>
 
         {/* Sekme çubuğu — yapışkan, camsı, aktif sekmede gold gradyan + parıltı */}
@@ -336,9 +337,6 @@ export default function App() {
             </ErrorBoundary>
             <div className="space-y-4">
               <ErrorBoundary>
-                <UserSettings />
-              </ErrorBoundary>
-              <ErrorBoundary>
                 <RunModeSettings />
               </ErrorBoundary>
               <ErrorBoundary>
@@ -348,6 +346,31 @@ export default function App() {
           </div>
         )}
       </div>
+
+      {/* Kullanıcı Ayarları — header ⚙️ ile açılan modal (her sekmeden erişilir) */}
+      {showSettings && (
+        <div
+          className="fixed inset-0 z-[60] flex items-start sm:items-center justify-center p-4 bg-black/70 backdrop-blur-sm overflow-y-auto"
+          onClick={() => setShowSettings(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-md my-8" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-end mb-2">
+              <button
+                onClick={() => setShowSettings(false)}
+                className="p-2 rounded-lg bg-iuNavy/60 border border-iuBorder text-slate-400 hover:text-iuGold transition-colors"
+                aria-label="Kapat"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <ErrorBoundary>
+              <UserSettings />
+            </ErrorBoundary>
+          </div>
+        </div>
+      )}
     </>
   )
 }

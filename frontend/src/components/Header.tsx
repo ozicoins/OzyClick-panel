@@ -1,10 +1,11 @@
 import { useSystemHealth } from '../hooks/useHealth'
-import { LogOut, Cpu, MemoryStick, HardDrive } from 'lucide-react'
+import { LogOut, Cpu, MemoryStick, HardDrive, Settings as SettingsIcon } from 'lucide-react'
 import OzyLogo from './ui/OzyLogo'
 
 interface Props {
   activeEmail: string
   onLogout: () => void
+  onOpenSettings?: () => void
 }
 
 // Canlı kaynak göstergesi — ikon + % + renkli bar (yeşil<70, amber<90, kırmızı≥90).
@@ -28,7 +29,7 @@ function ResMeter({ icon: Icon, label, pct, sub }: { icon: any; label: string; p
   )
 }
 
-export default function Header({ activeEmail, onLogout }: Props) {
+export default function Header({ activeEmail, onLogout, onOpenSettings }: Props) {
   const { data: health } = useSystemHealth()
   const diskPct = health?.disk_percent
 
@@ -68,6 +69,14 @@ export default function Header({ activeEmail, onLogout }: Props) {
           </div>
         )}
 
+        <button
+          onClick={onOpenSettings}
+          className="p-2 rounded-lg hover:bg-white/5 text-slate-400 hover:text-iuGold transition-colors flex-shrink-0"
+          aria-label="Kullanıcı ayarları"
+          title="Kullanıcı Ayarları (Telegram · şifre)"
+        >
+          <SettingsIcon className="w-4 h-4" />
+        </button>
         <button
           onClick={onLogout}
           className="p-2 rounded-lg hover:bg-white/5 text-slate-400 hover:text-iuGold transition-colors flex-shrink-0"
