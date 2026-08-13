@@ -66,8 +66,10 @@ SECTOR_PRESETS: dict[str, list[str]] = {
 
 
 class KeywordManager:
-    def __init__(self):
-        self._custom: dict[str, list[str]] = {}
+    # SINIF-seviyesi custom kelimeler: router, HER FarmingEngine ve scheduler AYNI dict'i paylaşır.
+    # (Önceden __init__'te instance-başı boş _custom vardı → engine/scheduler custom kelimeleri
+    #  GÖRMÜYOR, hep varsayılana düşüyordu; manuel üretim ise UI'dan custom yolluyordu → tutarsızlık.)
+    _custom: dict[str, list[str]] = {}
 
     def get_keywords(self, sector: str) -> list[str]:
         if sector in self._custom:
@@ -83,3 +85,15 @@ class KeywordManager:
             if s not in sectors:
                 sectors.append(s)
         return sectors
+
+    @classmethod
+    def load_custom(cls, data: dict) -> None:
+        """Redis'ten yüklenen custom kelimeleri paylaşılan dict'e koy (restart'ta korunur)."""
+        if isinstance(data, dict):
+            for k, v in data.items():
+                if isinstance(v, list):
+                    cls._custom[k] = [str(x) for x in v]
+
+    @classmethod
+    def dump_custom(cls) -> dict:
+        return dict(cls._custom)

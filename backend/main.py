@@ -60,6 +60,15 @@ async def lifespan(app: FastAPI):
         )
     await init_db()
     app.state.redis = await get_redis()
+    # Custom ısıtma kelimelerini redis'ten yükle (restart'ta korunur; router+engine+scheduler paylaşır).
+    try:
+        import orjson as _orjson
+        from services.keyword_manager import KeywordManager
+        _kw_raw = await app.state.redis.get("keywords:custom")
+        if _kw_raw:
+            KeywordManager.load_custom(_orjson.loads(_kw_raw))
+    except Exception:
+        pass
     # Keep-alive arka plan döngüsü — aktifse periyodik ping atar.
     from services.keepalive_service import keepalive_loop
     app.state.keepalive_task = asyncio.create_task(keepalive_loop(app))
