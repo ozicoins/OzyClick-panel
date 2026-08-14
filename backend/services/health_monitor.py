@@ -5,7 +5,7 @@ logger = logging.getLogger("health_monitor")
 
 
 class HealthMonitor:
-    def __init__(self, impersonate: str = "chrome120"):
+    def __init__(self, impersonate: str = "chrome"):
         self._impersonate = impersonate
         self._cffi_available = False
         try:

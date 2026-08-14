@@ -70,9 +70,10 @@ MOBILE_DEVICES = [
 
 # Güncel Chrome ana sürümleri (UA + Client Hints AYNI sürümü kullanır → tutarlı). Mobil Chrome
 # agresif auto-update olduğu için ESKİ sürüm (124-131 = ~2024) sert bir bot tell'iydi; Ağu 2026
-# stabil = 151 → son birkaç sürümlük gerçekçi dağılım (çoğu cihaz otomatik son sürümlerde).
-# NOT: bunlar zamanla eskir — periyodik güncellenmeli (mevcut stabil Chrome'a çek).
-_ANDROID_CHROME = [148, 149, 150, 151]
+# Android Chrome ana sürümleri — son birkaç sürümlük gerçekçi dağılım (çoğu cihaz oto son sürümlerde).
+# ⚠️ BAYAT UA = TELL → ~AYLIK BUMP GEREK. Son güncelleme 2026-08-14 (stabil=152).
+# Yeni stable çıkınca (chromereleases.googleblog.com) listeyi +1 kaydır.
+_ANDROID_CHROME = [149, 150, 151, 152]
 
 
 @dataclass
@@ -94,7 +95,7 @@ class BrowserFingerprint:
     color_scheme: str = "light"
     model: str = "SM-S911B"
     os_version: str = "14"
-    browser_version: str = "131"   # Chrome ana sürüm (UA + userAgentData + Sec-CH-UA aynı)
+    browser_version: str = "152"   # Chrome ana sürüm (UA + userAgentData + Sec-CH-UA aynı) — fallback default, güncel tut
     canvas_noise: int = 1          # ESKİ zayıf gürültü (seed'siz geriye-uyum)
     noise_seed: int = 0            # PER-PROFİL büyük seed → canvas/webgl/audio DE-KORELASYON (toplu-ban savunması)
 
@@ -299,7 +300,7 @@ class FingerprintService:
         cores = fp.hardware_concurrency if fp else 8
         model = fp.model if fp else "SM-S911B"
         osv = fp.os_version if fp else "14"
-        cver = fp.browser_version if fp else "131"
+        cver = fp.browser_version if fp else "152"
         cnoise = fp.canvas_noise if fp else 1
         nseed = (fp.noise_seed if fp else 0) or 0           # per-profil de-korelasyon seed'i
         # WebGL(ANGLE)+ALIASED_POINT_SIZE_RANGE+font decloak — masaüstü botla AYNI (birth=use tam

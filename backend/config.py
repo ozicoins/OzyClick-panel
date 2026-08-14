@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     scrapingbee_premium: bool = True       # premium/residential proxy havuzu
 
     # TLS / Anti-detect
-    curl_cffi_impersonate: str = "chrome120"
+    curl_cffi_impersonate: str = "chrome"   # curl_cffi'nin en yeni desteklediği Chrome TLS'i (sabit eski sürüm=tell)
     stealth_enabled: bool = True
 
     # Captcha (optional) — tek marka CapSolver (clicker paneliyle aynı)
