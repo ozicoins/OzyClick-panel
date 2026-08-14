@@ -64,8 +64,13 @@ async def solve_image_captcha(page, api_key: str, service: str = "capsolver", lo
         return ("nokey", "")
 
     try:
-        # 1) captcha görüntüsünün ekran görüntüsü (cookie/URL fetch'e gerek yok)
-        png = await img.first.screenshot(timeout=8000)
+        # 1) captcha GÖRÜNÜR mü — değilse/yavaşsa HIZLI vazgeç (login worker'ını 30sn kilitleme).
+        el = img.first
+        try:
+            await el.wait_for(state="visible", timeout=3000)
+        except Exception:
+            return ("failed", "captcha görüntüsü 3sn'de görünmedi")
+        png = await el.screenshot(timeout=5000)   # kısa: takılırsa çöz(e)me, worker'ı bloklama
         b64 = base64.b64encode(png).decode()
 
         async with httpx.AsyncClient(timeout=60) as client:

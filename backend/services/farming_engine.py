@@ -317,8 +317,11 @@ class FarmingEngine:
             return
         try:
             from services.captcha_solver import solve_image_captcha
-            await solve_image_captcha(
-                page, self._captcha_key, self._captcha_service, log=self._log
+            # SERT ÜST SINIR: captcha çözümü bir worker'ı EN FAZLA ~20sn tutabilir. Screenshot/CapSolver
+            # hang'i (30sn timeout) tüm batch'i kilitlemesin — captcha YOKSA zaten anında döner (no-op).
+            await asyncio.wait_for(
+                solve_image_captcha(page, self._captcha_key, self._captcha_service, log=self._log),
+                timeout=20,
             )
         except Exception:
             pass
