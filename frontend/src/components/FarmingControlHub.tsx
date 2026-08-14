@@ -58,8 +58,9 @@ export default function FarmingControlHub({
     refetchInterval: 3_000,
   })
 
+  const safeCount = Math.max(MIN_COUNT, count || MIN_COUNT)   // submit'te min garanti (blur gecikmesine karşı)
   const startMutation = useMutation({
-    mutationFn: () => api.startFarming({ email, count, lifespan_days: lifespan, sector, mode, keywords }),
+    mutationFn: () => api.startFarming({ email, count: safeCount, lifespan_days: lifespan, sector, mode, keywords }),
     onSuccess: (data) => {
       toast.success(data.message)
       onBatchStarted(data.batch_id)
@@ -69,7 +70,7 @@ export default function FarmingControlHub({
 
   const startAllMutation = useMutation({
     mutationFn: () => api.startFarmingAll({
-      count_per_account: count, lifespan_days: lifespan, sector, mode, keywords,
+      count_per_account: safeCount, lifespan_days: lifespan, sector, mode, keywords,
     }),
     onSuccess: (data) => {
       toast.success(data.message)
@@ -147,12 +148,14 @@ export default function FarmingControlHub({
                 {c >= 1000 ? `${c / 1000}K` : c}
               </button>
             ))}
-            {/* Serbest sayı: max'ı kullanıcı belirler; 20 altı otomatik 20'ye çekilir */}
+            {/* Serbest sayı: yazarken SERBEST (her tuşta 20'ye zorlamak "50"yi "200" yapıyordu);
+                min 20 yalnızca alandan ÇIKINCA (blur) uygulanır. */}
             <input
               type="number"
               min={MIN_COUNT}
               value={count}
-              onChange={e => setCount(Math.max(MIN_COUNT, Number(e.target.value) || MIN_COUNT))}
+              onChange={e => setCount(Math.max(0, Math.floor(Number(e.target.value)) || 0))}
+              onBlur={() => setCount(c => (c < MIN_COUNT ? MIN_COUNT : c))}
               aria-label="Özel profil sayısı"
               className="w-20 py-1.5 px-2 rounded-lg text-xs text-center bg-iuNavy/50 text-slate-200 border border-iuBorder focus:border-iuGold focus:outline-none"
             />
