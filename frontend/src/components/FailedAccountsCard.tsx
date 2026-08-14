@@ -50,19 +50,29 @@ export default function FailedAccountsCard() {
       />
       <p className="text-[10px] text-slate-600 leading-snug">
         Bu hesaplar login veremedi (Google ek-doğrulama/onay istiyor ya da işaretli) → otomatik üretilemezler.
-        Secret/kurtarma/durumu düzelt, sonra <b className="text-slate-400">×</b> ile listeden çıkar. (Üretimde otomatik birikir, yenilemede kalır.)
+        <b className="text-red-400"> Kırmızı</b> = 2. kez sorunlu, işlem sırasından çıkarıldı (atlanır).
+        Düzeltince <b className="text-slate-400">×</b> ile çıkar → sıraya geri döner. Tekrar başarılı üretirse otomatik silinir.
       </p>
       <div className="max-h-56 overflow-y-auto space-y-1 pr-1">
         {accounts.map(a => (
-          <div key={a.email} className="flex items-center gap-2 text-[11px] border-b border-iuBorder/20 py-1.5">
+          <div key={a.email} className={`flex items-center gap-2 text-[11px] border-b py-1.5 ${
+            a.red ? 'border-red-500/30 bg-red-500/5 rounded px-1' : 'border-iuBorder/20'
+          }`}>
             <div className="min-w-0 flex-1">
-              <p className="text-slate-300 truncate font-mono">{a.email}</p>
-              <p className="text-amber-400/90 text-[10px] truncate">
+              <div className="flex items-center gap-1.5">
+                <p className="text-slate-300 truncate font-mono">{a.email}</p>
+                {a.red ? (
+                  <span className="text-[9px] font-bold text-red-400 bg-red-500/15 px-1 rounded flex-shrink-0">KIRMIZI · x{a.strikes ?? 2}</span>
+                ) : (a.strikes ?? 1) >= 1 ? (
+                  <span className="text-[9px] text-amber-400 bg-amber-500/10 px-1 rounded flex-shrink-0">x{a.strikes ?? 1}</span>
+                ) : null}
+              </div>
+              <p className={`text-[10px] truncate ${a.red ? 'text-red-400/90' : 'text-amber-400/90'}`}>
                 {shortReason(a.reason)}{a.at && <span className="text-slate-600"> · {a.at}</span>}
               </p>
             </div>
             <button onClick={() => remove.mutate(a.email)} disabled={remove.isPending}
-              className="p-1 rounded text-slate-600 hover:text-red-400 flex-shrink-0" title="Listeden çıkar (düzelttim)">
+              className="p-1 rounded text-slate-600 hover:text-red-400 flex-shrink-0" title="Listeden çıkar → sıraya geri döner">
               <X className="w-3.5 h-3.5" />
             </button>
           </div>

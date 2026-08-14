@@ -277,6 +277,7 @@ class FarmingEngine:
         self._planned_total = 0                  # günlük-limit kırpımından SONRA gerçek hedef profil
         self._deadlogin: dict[str, str] = {}     # email -> sebep: DETERMİNİSTİK login hatası (yanlış TOTP/
         #  reddedildi/hesap yok) alan hesap → kalan worker'ları BOŞA deneme, browser bile açma.
+        self._red_skipped: dict[str, int] = {}   # email -> strike: KIRMIZI olduğu için bu batch'te atlanan hesap
 
     def _record(self, email: str, ok: bool) -> None:
         """Hesap bazlı başarı/başarısızlık sayacı (panelde hangi hesap sorunlu görünür)."""
@@ -423,6 +424,8 @@ class FarmingEngine:
         self._failed = 0
         self._acct_stats = {}
         self._skipped = {}
+        self._deadlogin = {}       # her batch TEMİZ başlar (oto-iyileşme)
+        self._red_skipped = {}
 
         # Günlük-limit clamp'i checkpoint/start_index BİLİNDİKTEN SONRA uygulanır (aşağıda) —
         # resume'da count'un start_index'in ALTINA düşüp range'i boşaltmasını önlemek için (Tur3 #E).
@@ -584,13 +587,15 @@ class FarmingEngine:
     ) -> dict:
         """Havuzdaki TÜM hesapları TEK batch'te işler — her worker FARKLI hesaba girer
         (TOTP çakışması yok, tam paralel). Her hesap kendi cookies_output/<email> klasörüne yazar."""
-        from services.account_store import get_daily_count
+        from services.account_store import get_daily_count, get_fail_count
         self._redis = redis
         self._stop_event.clear()
         self._completed = 0
         self._failed = 0
         self._acct_stats = {}
         self._skipped = {}
+        self._deadlogin = {}       # her batch TEMİZ başlar → geçen batch'te işaretlenen hesap yeniden denenir (oto-iyileşme)
+        self._red_skipped = {}     # bu batch'te KIRMIZI olduğu için atlanan hesaplar {email: strike}
         self.proxy_rotator.load_proxies(proxy_urls)
         base_keywords = keywords or self.keyword_manager.get_keywords(sector)
 
@@ -609,6 +614,12 @@ class FarmingEngine:
         acct_n = []   # [(acc, n, start)] — start = mevcut en yüksek index (ÜZERİNE YAZMA koruması)
         for acc in accounts:
             em = acc["email"]
+            # KIRMIZI (2 kez üst üste sorunlu) hesap → işlem sırasından ÇIKAR (browser bile açma, boşa deneme yok).
+            # Panelden temizlenince VEYA başarılı üretimde (reset_fail_count) tekrar sıraya girer.
+            _fc = await get_fail_count(redis, em)
+            if _fc >= settings.account_red_strikes:
+                self._red_skipped[em] = _fc
+                continue
             odir = os.path.join(settings.cookies_output_dir, em.replace("@", "_at_").replace(".", "_").replace("/", "_").replace("\\", "_"))
             os.makedirs(odir, exist_ok=True)
             dirs[em] = odir
@@ -840,25 +851,57 @@ class FarmingEngine:
                         self._failed += 1
                         self._record(email, False)
                         await self._log(f"✗ {email} · Login FAILED: {_why or 'bilinmeyen sebep'}", "ERROR")
-                        # DETERMİNİSTİK hata (yanlış TOTP / reddedildi / hesap yok) AYNI hesapta HER SEFERİNDE
-                        # tekrarlar → hesabı ÖLÜ işaretle, kalan worker'lar atlansın. Proxy/timeout/CAPTCHA
-                        # TRANSIENT (IP/ağ bağlı) → işaretleme, tekrar denenebilir.
-                        if any(k in (_why or "") for k in ("2FA", "REDDETTİ", "parola adımı gelmedi")):
+                        # HATA YÖNLENDİRME (kullanıcı isteği — hesabı haksız yere suçlama):
+                        #  • "Google REDDETTİ" (IP/hesap işaretli, çok deneme) = HESABIN değil PROXY'nin/IP'nin
+                        #    sorunu → strike YOK, ölü-işaretleme YOK (başka proxy'yle tekrar denenir). Aynı
+                        #    proxy'den tekrarlarsa proxy'yi geçici flag'le (rotasyon dışı).
+                        #  • 2FA / parola adımı = hesabın KENDİ deterministik sorunu → strike +1; 2. strike'ta
+                        #    KIRMIZI + sonraki üretimlerde sıradan çıkar. Kalan worker'ları boşa deneme.
+                        _reason = _why or ""
+                        _r = getattr(self, "_redis", None)
+                        if "REDDETTİ" in _reason:
+                            try:
+                                _srv = (proxy or {}).get("server", "") or ""
+                                if _srv and "scrapingbee" not in _srv.lower():
+                                    _flagged = await self.proxy_rotator.mark_rejected_server(
+                                        _srv, max_rejects=settings.proxy_reddetti_max
+                                    )
+                                    if _flagged:
+                                        await self._log(
+                                            f"🚩 Proxy flag'lendi (REDDETTİ tekrarı) — {email} SUÇLANMADI, "
+                                            f"başka proxy'yle devam eder", "WARNING",
+                                        )
+                                if _r is not None:
+                                    _at = time.strftime("%Y-%m-%d %H:%M", time.gmtime(time.time() + 3 * 3600))
+                                    await _r.hset("farming:rejected_ip", email,
+                                                  orjson.dumps({"reason": _reason, "at": _at, "proxy": _srv}))
+                            except Exception:
+                                pass
+                            return None
+                        if any(k in _reason for k in ("2FA", "parola adımı gelmedi")):
                             if email not in self._deadlogin:
-                                self._deadlogin[email] = _why
+                                self._deadlogin[email] = _reason
                                 await self._log(
-                                    f"⛔ {email} login veremiyor ({_why}) — bu hesabın KALAN worker'ları "
+                                    f"⛔ {email} login veremiyor ({_reason}) — bu hesabın KALAN worker'ları "
                                     f"atlanıyor (boşa üretim/tekrar TOTP hatası yok). Hesabın secret'ını/durumunu düzeltin.",
                                     "ERROR",
                                 )
-                                # KALICI KAYIT: sorunlu hesabı redis'e yaz (Çıktılar'da gösterilir,
-                                # panel yenilense de kalır). HSET atomik → eşzamanlı worker'larda yarış yok.
+                                # KALICI KAYIT + strike: sorunlu hesabı redis'e yaz (Çıktılar'da gösterilir,
+                                # panel yenilense de kalır). HSET/HINCRBY atomik → eşzamanlı worker'larda yarış yok.
                                 try:
-                                    _r = getattr(self, "_redis", None)
                                     if _r is not None:
+                                        from services.account_store import incr_fail_count
+                                        _strikes = await incr_fail_count(_r, email)
+                                        _red = _strikes >= settings.account_red_strikes
                                         _at = time.strftime("%Y-%m-%d %H:%M", time.gmtime(time.time() + 3 * 3600))
                                         await _r.hset("farming:failed_accounts", email,
-                                                      orjson.dumps({"reason": _why, "at": _at}))
+                                                      orjson.dumps({"reason": _reason, "at": _at,
+                                                                    "strikes": _strikes, "red": _red}))
+                                        if _red:
+                                            await self._log(
+                                                f"🔴 {email} {_strikes}. kez sorunlu → KIRMIZI, sonraki üretimlerde "
+                                                f"ATLANACAK (panelden temizleyince tekrar sıraya girer)", "ERROR",
+                                            )
                                 except Exception:
                                     pass
                         return None
@@ -917,8 +960,14 @@ class FarmingEngine:
                 self._completed += 1
                 self._record(email, True)
                 try:
-                    from services.account_store import incr_daily_count
+                    from services.account_store import incr_daily_count, reset_fail_count
                     await incr_daily_count(self._redis, email)   # aşırı-farmlama sayacı
+                    # OTO-İYİLEŞME: hesap TEKRAR çalıştı → sorunlu listesinden çıkar + strike sıfırla
+                    # + ölü-işaretten çıkar. (redis hdel yoksa no-op; her başarıda ucuz, korumalı.)
+                    if self._redis is not None:
+                        await self._redis.hdel("farming:failed_accounts", email)
+                        await reset_fail_count(self._redis, email)
+                    self._deadlogin.pop(email, None)
                 except Exception:
                     pass
                 elapsed = round(time.time() - start_time, 1)

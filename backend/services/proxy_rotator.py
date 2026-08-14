@@ -58,6 +58,7 @@ class ProxyEntry:
     status: ProxyStatus = ProxyStatus.ALIVE
     fail_count: int = 0
     ban_until: float = 0.0
+    reject_count: int = 0   # "Google REDDETTİ" (IP/hesap işaretli) kaç kez → eşik aşılınca geçici flag
 
 
 class ProxyRotator:
@@ -90,6 +91,7 @@ class ProxyRotator:
                     p.status = ProxyStatus.ALIVE
                     p.ban_until = 0.0
                     p.fail_count = 0
+                    p.reject_count = 0   # süre dolunca REDDETTİ sayacı da sıfırlanır → temiz başlangıç
 
             if session_key and session_key in self._sticky:
                 url = self._sticky[session_key]
@@ -144,6 +146,39 @@ class ProxyRotator:
                 except Exception:
                     continue
 
+    async def mark_rejected_server(self, server: str, max_rejects: int = 2, ban_seconds: int = 21600) -> bool:
+        """'Google REDDETTİ' (hesap/IP işaretli, çok deneme) → HESABIN değil PROXY'nin sorunu.
+        Bu proxy üzerinden max_rejects kez REDDETTİ gelirse proxy'yi GEÇİCİ flag'ler (rotasyondan
+        çıkar). KALICI DEAD değil uzun BAN (Google IP-flag'i zamanla düşer → havuz tükenmesin).
+        Flag'lendiyse True döner (log/telegram için). ScrapingBee server'ları bu yolu KULLANMAZ."""
+        if not server:
+            return False
+        from urllib.parse import urlparse
+        import time
+        try:
+            s = urlparse(server)
+            target = ((s.hostname or "").strip("[]"), s.port)
+        except Exception:
+            return False
+        async with self._lock:
+            for p in self._proxies:
+                try:
+                    pu = urlparse(p.url)
+                    if ((pu.hostname or "").strip("[]"), pu.port) == target:
+                        p.reject_count += 1
+                        if p.reject_count >= max_rejects and p.status != ProxyStatus.BANNED:
+                            p.status = ProxyStatus.BANNED
+                            p.ban_until = time.time() + ban_seconds
+                            logger.warning(
+                                f"Proxy FLAGGED (REDDETTİ x{p.reject_count}): {_redact(p.url)} "
+                                f"→ {ban_seconds // 3600}s rotasyon dışı"
+                            )
+                            return True
+                        return False
+                except Exception:
+                    continue
+        return False
+
     async def mark_banned(self, proxy_url: str, ban_seconds: int = 1800):
         async with self._lock:
             import time
@@ -158,7 +193,8 @@ class ProxyRotator:
         alive = sum(1 for p in self._proxies if p.status == ProxyStatus.ALIVE)
         dead = sum(1 for p in self._proxies if p.status == ProxyStatus.DEAD)
         banned = sum(1 for p in self._proxies if p.status == ProxyStatus.BANNED)
-        return {"total": len(self._proxies), "alive": alive, "dead": dead, "banned": banned}
+        flagged = sum(1 for p in self._proxies if p.reject_count > 0)  # REDDETTİ almış proxy sayısı
+        return {"total": len(self._proxies), "alive": alive, "dead": dead, "banned": banned, "flagged": flagged}
 
     @staticmethod
     def _to_playwright_proxy(url: str) -> dict:

@@ -237,6 +237,10 @@ export const api = {
   removeFailedAccount: (email: string) =>
     request<{ removed: string }>(`/api/v1/export/failed-accounts/remove?email=${encodeURIComponent(email)}`, { method: 'POST' }),
 
+  // "Google REDDETTİ" (IP/proxy sorunu — hesap suçlanmaz) alan hesaplar.
+  getRejectedIp: () =>
+    request<{ accounts: import('../types').RejectedIp[]; count: number }>('/api/v1/export/rejected-ip'),
+
   // Otomatik ölü-çerez temizliği
   getAutoCleanup: () =>
     request<{ enabled: boolean }>('/api/v1/settings/auto-cleanup'),

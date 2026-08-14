@@ -195,6 +195,15 @@ export interface FailedAccount {
   email: string
   reason: string
   at: string
+  strikes?: number   // kaçıncı kez sorunlu (2 = KIRMIZI, sıradan çıkarıldı)
+  red?: boolean      // 2. strike → işlem sırasından çıkarıldı
+}
+
+export interface RejectedIp {
+  email: string
+  reason: string
+  at: string
+  proxy?: string     // reddi tetikleyen proxy (host:port) — tekrarında flag'lenir
 }
 
 export type ProxyQuality = 'classic' | 'premium' | 'stealth'

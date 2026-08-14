@@ -14,6 +14,7 @@ import FarmingControlHub from './components/FarmingControlHub'
 import ExporterPanel from './components/ExporterPanel'
 import PoolHealthCard from './components/PoolHealthCard'
 import FailedAccountsCard from './components/FailedAccountsCard'
+import RejectedIpCard from './components/RejectedIpCard'
 import WorkerMonitor from './components/WorkerMonitor'
 import GmailPoolManager from './components/GmailPoolManager'
 import SessionKeepAlive from './components/SessionKeepAlive'
@@ -327,9 +328,13 @@ export default function App() {
                 <ExporterPanel email="" />
               </ErrorBoundary>
             </div>
-            {/* Sorunlu hesaplar (2FA ek-doğrulama/REDDETTİ) — sorun varsa görünür, kalıcı */}
+            {/* Sorunlu hesaplar (2FA ek-doğrulama/parola) — hesabın kendi sorunu, sorun varsa görünür */}
             <ErrorBoundary>
               <FailedAccountsCard />
+            </ErrorBoundary>
+            {/* IP Reddi (Google REDDETTİ) — proxy/IP sorunu, hesap suçlanmaz; reddi varsa görünür */}
+            <ErrorBoundary>
+              <RejectedIpCard />
             </ErrorBoundary>
           </div>
         )}

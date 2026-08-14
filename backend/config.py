@@ -104,6 +104,10 @@ class Settings(BaseSettings):
     captcha_api_key: str = ""
     captcha_service: str = "2captcha"
 
+    # Sorunlu-hesap / proxy stratejisi
+    account_red_strikes: int = 2      # bu kadar üretimde login veremeyen hesap KIRMIZI + sıradan çıkar
+    proxy_reddetti_max: int = 2       # bir proxy bu kadar "Google REDDETTİ" üretirse rotasyondan çıkar
+
     # Credential at-rest encryption (opsiyonel).
     # Fernet anahtarı; production'da runtime'da (secret manager / docker secret)
     # inject edilmeli, diske yazılmamalı. Boşsa gmail.csv düz metin okunur.

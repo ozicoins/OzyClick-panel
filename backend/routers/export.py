@@ -379,7 +379,32 @@ async def get_failed_accounts(request: Request, _user: dict = Depends(get_curren
                 d = orjson.loads(val)
             except Exception:
                 d = {"reason": (val.decode() if isinstance(val, (bytes, bytearray)) else str(val)), "at": ""}
-            out.append({"email": em, "reason": d.get("reason", ""), "at": d.get("at", "")})
+            out.append({"email": em, "reason": d.get("reason", ""), "at": d.get("at", ""),
+                        "strikes": int(d.get("strikes", 1) or 1), "red": bool(d.get("red", False))})
+    except Exception:
+        pass
+    # KIRMIZI (2. kez) üstte, sonra tarihe göre
+    out.sort(key=lambda x: (not x.get("red", False), x.get("at", "")), reverse=False)
+    out.sort(key=lambda x: (x.get("red", False), x.get("at", "")), reverse=True)
+    return {"accounts": out, "count": len(out)}
+
+
+@router.get("/export/rejected-ip")
+async def get_rejected_ip(request: Request, _user: dict = Depends(get_current_user)):
+    """'Google REDDETTİ' (IP/hesap işaretli, çok deneme) alan hesaplar — bunlar HESABIN değil
+    PROXY/IP'nin sorunu (strike YOK). Görünürlük için; hesap otomatik tekrar denenir."""
+    redis = request.app.state.redis
+    out = []
+    try:
+        raw = await redis.hgetall("farming:rejected_ip")
+        for email, val in (raw or {}).items():
+            em = email.decode() if isinstance(email, (bytes, bytearray)) else email
+            try:
+                d = orjson.loads(val)
+            except Exception:
+                d = {"reason": "", "at": "", "proxy": ""}
+            out.append({"email": em, "reason": d.get("reason", ""), "at": d.get("at", ""),
+                        "proxy": d.get("proxy", "")})
     except Exception:
         pass
     out.sort(key=lambda x: x.get("at", ""), reverse=True)
@@ -388,9 +413,13 @@ async def get_failed_accounts(request: Request, _user: dict = Depends(get_curren
 
 @router.post("/export/failed-accounts/clear")
 async def clear_failed_accounts(request: Request, _user: dict = Depends(get_current_user)):
-    """Sorunlu hesap listesini temizle (hesapları düzelttikten sonra)."""
+    """Sorunlu hesap listesini temizle (hesapları düzelttikten sonra). Strike sayaçlarını da SIFIRLAR
+    → KIRMIZI hesaplar sıraya geri döner."""
     try:
-        await request.app.state.redis.delete("farming:failed_accounts")
+        r = request.app.state.redis
+        await r.delete("farming:failed_accounts")
+        await r.delete("farming:fail_counts")   # strike'ları sıfırla (KIRMIZI'dan çıkar)
+        await r.delete("farming:rejected_ip")
     except Exception:
         pass
     return {"cleared": True}
@@ -399,9 +428,11 @@ async def clear_failed_accounts(request: Request, _user: dict = Depends(get_curr
 @router.post("/export/failed-accounts/remove")
 async def remove_failed_account(request: Request, email: str = Query(...),
                                 _user: dict = Depends(get_current_user)):
-    """Tek bir sorunlu hesabı listeden çıkar (o hesabı düzelttiysen)."""
+    """Tek bir sorunlu hesabı listeden çıkar (o hesabı düzelttiysen). Strike'ını da sıfırlar → sıraya döner."""
     try:
-        await request.app.state.redis.hdel("farming:failed_accounts", email)
+        r = request.app.state.redis
+        await r.hdel("farming:failed_accounts", email)
+        await r.hdel("farming:fail_counts", email)   # strike sıfırla → KIRMIZI'dan çıkar, sıraya geri
     except Exception:
         pass
     return {"removed": email}

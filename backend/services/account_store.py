@@ -50,6 +50,62 @@ async def incr_daily_count(redis, email: str, n: int = 1) -> int:
         return 0
 
 
+# ── SORUNLU-HESAP strike sayacı (2 hata = KIRMIZI, işlem sırasından çıkar) ──────
+# KALICI (redis hash) → panel yenilense/servis restart olsa da kalır. Hesap TEKRAR
+# başarılı üretim yapınca reset_fail_count ile SIFIRLANIR (otomatik iyileşme).
+FAIL_COUNTS_KEY = "farming:fail_counts"   # email -> strike sayısı (int)
+RED_STRIKES = 2                            # bu sayıya ULAŞAN hesap KIRMIZI + sıradan çıkar
+
+
+async def get_fail_count(redis, email: str) -> int:
+    """Bu hesabın üst üste kaç ÜRETİMDE (batch) login veremediği. 0 = temiz."""
+    if redis is None or not email:
+        return 0
+    try:
+        v = await redis.hget(FAIL_COUNTS_KEY, email)
+        return int(v) if v else 0
+    except Exception:
+        return 0
+
+
+async def incr_fail_count(redis, email: str, n: int = 1) -> int:
+    """Strike +1 (hesabın kendi hatası: 2FA/parola). Yeni toplamı döner."""
+    if redis is None or not email:
+        return 0
+    try:
+        return int(await redis.hincrby(FAIL_COUNTS_KEY, email, n))
+    except Exception:
+        return 0
+
+
+async def reset_fail_count(redis, email: str) -> None:
+    """Hesap tekrar çalıştı → strike'ları sil (KIRMIZI'dan çıkar, sıraya geri gir)."""
+    if redis is None or not email:
+        return
+    try:
+        await redis.hdel(FAIL_COUNTS_KEY, email)
+    except Exception:
+        pass
+
+
+async def get_fail_counts(redis) -> dict[str, int]:
+    """Tüm strike'lar {email: sayı} — panelde KIRMIZI/SARI ayrımı için."""
+    if redis is None:
+        return {}
+    try:
+        raw = await redis.hgetall(FAIL_COUNTS_KEY)
+        out: dict[str, int] = {}
+        for k, v in (raw or {}).items():
+            em = k.decode() if isinstance(k, bytes) else k
+            try:
+                out[em] = int(v)
+            except Exception:
+                out[em] = 0
+        return out
+    except Exception:
+        return {}
+
+
 async def flag_device_prompt(redis, email: str) -> None:
     """Cihaz-onaylı 2FA (telefon 'evet') hesabını işaretle → panelde 'otomatikleşmez' gösterilir."""
     if redis is None or not email:
