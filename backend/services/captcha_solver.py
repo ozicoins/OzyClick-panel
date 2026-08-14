@@ -63,15 +63,49 @@ async def solve_image_captcha(page, api_key: str, service: str = "capsolver", lo
         await _say("🧩 CAPTCHA çıktı ama CapSolver anahtarı yok — çözülemiyor (Ayarlar'dan ekleyin).", "WARNING")
         return ("nokey", "")
 
+    await _say("🧩 CAPTCHA tespit edildi — resim alınıp CapSolver'a gönderiliyor...", "INFO")
     try:
-        # 1) captcha GÖRÜNÜR mü — değilse/yavaşsa HIZLI vazgeç (login worker'ını 30sn kilitleme).
-        el = img.first
+        # 1) CAPTCHA GÖRÜNTÜSÜNÜ AL — screenshot GÜVENİLMEZ (30sn takılıyordu). Öncelik:
+        #    (a) img.src bir data:URI ise → doğrudan base64 çöz (fetch/screenshot yok).
+        #    (b) img.src bir URL ise → OTURUM ÇEREZLERİYLE fetch et (page.request context'in cookie'sini kullanır).
+        #    (c) son çare → element screenshot (kısa timeout).
+        b64 = None
+        src = None
         try:
-            await el.wait_for(state="visible", timeout=3000)
+            src = await img.first.get_attribute("src")
         except Exception:
-            return ("failed", "captcha görüntüsü 3sn'de görünmedi")
-        png = await el.screenshot(timeout=5000)   # kısa: takılırsa çöz(e)me, worker'ı bloklama
-        b64 = base64.b64encode(png).decode()
+            src = None
+        try:
+            if src and src.startswith("data:"):
+                b64 = src.split(",", 1)[1] if "," in src else None
+                await _say("🧩 captcha resmi data-URI'den alındı", "INFO")
+            elif src:
+                if src.startswith("//"):
+                    src = "https:" + src
+                elif src.startswith("/"):
+                    from urllib.parse import urljoin
+                    src = urljoin(page.url, src)
+                try:
+                    resp = await page.request.get(src, timeout=8000)
+                    body = await resp.body()
+                    if body:
+                        b64 = base64.b64encode(body).decode()
+                        await _say(f"🧩 captcha resmi fetch edildi ({len(body)} bayt)", "INFO")
+                except Exception as e:
+                    await _say(f"🧩 fetch olmadı ({str(e)[:40]}) → screenshot deneniyor", "WARNING")
+        except Exception:
+            pass
+        if not b64:   # (c) son çare: screenshot
+            try:
+                el = img.first
+                await el.wait_for(state="visible", timeout=3000)
+                png = await el.screenshot(timeout=5000)
+                b64 = base64.b64encode(png).decode()
+                await _say("🧩 captcha resmi screenshot ile alındı", "INFO")
+            except Exception:
+                return ("failed", "captcha görüntüsü alınamadı (src+screenshot başarısız)")
+        if not b64:
+            return ("failed", "captcha görüntüsü boş")
 
         async with httpx.AsyncClient(timeout=60) as client:
             # 2) CapSolver'a gönder (ImageToTextTask → normal resim captcha, module=common)
@@ -105,13 +139,21 @@ async def solve_image_captcha(page, api_key: str, service: str = "capsolver", lo
         if not answer:
             return ("failed", "zaman aşımı (cevap gelmedi)")
 
-        # 4) cevabı input[name=ca]'ya yaz
-        inp = page.locator(_CAPTCHA_INPUT).first
-        if await inp.count() == 0:
-            return ("failed", "captcha girdi alanı (input[name=ca]) bulunamadı")
-        await inp.click()
-        await inp.fill(answer)
-        await _say(f"🧩 CAPTCHA çözüldü ve girildi ({len(answer)} karakter).", "INFO")
+        # 4) cevabı girdi alanına yaz (birden fazla olası seçici)
+        filled = False
+        for sel in (_CAPTCHA_INPUT, "#ca", "input[name='captcha']", "input[type='text']:not([name='identifier'])"):
+            try:
+                inp = page.locator(sel).first
+                if await inp.count() > 0:
+                    await inp.click()
+                    await inp.fill(answer)
+                    filled = True
+                    break
+            except Exception:
+                continue
+        if not filled:
+            return ("failed", "captcha girdi alanı bulunamadı (input[name=ca]/#ca)")
+        await _say(f"🧩 CAPTCHA çözüldü ve girildi: '{answer}' ({len(answer)} karakter) — Next'e basılacak.", "INFO")
         return ("solved", answer)
 
     except Exception as e:
