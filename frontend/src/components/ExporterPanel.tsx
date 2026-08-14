@@ -36,10 +36,12 @@ export default function ExporterPanel({ email }: Props) {
 
   const { data: stats, refetch, isFetching } = useQuery({
     queryKey: ['export-stats'],
-    // Canlı artış WS'ten (her ✓ başarıda invalidate — useFarmingLogs); bu interval yalnız
-    // WS kopukken güvenlik ağı (15sn→5sn: daha responsive).
+    // Canlı artış: her ✓ başarıda WS invalidate (useFarmingLogs) + bu interval güvenlik ağı.
+    // refetchIntervalInBackground: panel arka-plan sekmedeyken bile artmaya devam etsin (üretimi
+    // izlerken başka sekmeye geçince donmasın). 5→3sn: daha canlı.
     queryFn: () => api.getExportStats(),
-    refetchInterval: 5_000,
+    refetchInterval: 3_000,
+    refetchIntervalInBackground: true,
   })
   const total = stats?.total_profiles ?? 0
 
