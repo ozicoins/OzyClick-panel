@@ -82,7 +82,9 @@ async def captcha_test(request: Request, _user: dict = Depends(get_current_user)
                                   json={"clientKey": key})
             data = r.json()
         if not data.get("errorId"):
-            return {"ok": True, "detail": f"Anahtar geçerli · bakiye ${data.get('balance')}"}
+            _bal = data.get("balance")
+            _bal_txt = f"${_bal}" if _bal is not None else "bilinmiyor"
+            return {"ok": True, "detail": f"Anahtar geçerli · bakiye {_bal_txt}"}
         return {"ok": False, "detail": f"CapSolver: {data.get('errorDescription') or data.get('errorCode')}"}
     except Exception as e:
         return {"ok": False, "detail": f"Sorgulanamadı: {e}"}

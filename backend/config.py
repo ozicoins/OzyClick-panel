@@ -107,6 +107,7 @@ class Settings(BaseSettings):
     # Sorunlu-hesap / proxy stratejisi
     account_red_strikes: int = 2      # bu kadar üretimde login veremeyen hesap KIRMIZI + sıradan çıkar
     proxy_reddetti_max: int = 2       # bir proxy bu kadar "Google REDDETTİ" üretirse rotasyondan çıkar
+    account_reddetti_cap: int = 3     # bir hesap bu batch'te bu kadar REDDETTİ alırsa kalanı atlanır (strike YOK, kredi/havuz koruması)
 
     # Credential at-rest encryption (opsiyonel).
     # Fernet anahtarı; production'da runtime'da (secret manager / docker secret)

@@ -278,8 +278,9 @@ class FarmingEngine:
         self._deadlogin: dict[str, str] = {}     # email -> sebep: DETERMİNİSTİK login hatası (yanlış TOTP/
         #  reddedildi/hesap yok) alan hesap → kalan worker'ları BOŞA deneme, browser bile açma.
         self._red_skipped: dict[str, int] = {}   # email -> strike: KIRMIZI olduğu için bu batch'te atlanan hesap
-        self._captcha_key: str = ""              # 2captcha anahtarı (batch başında redis'ten yüklenir)
-        self._captcha_service: str = "2captcha"
+        self._reddetti_count: dict[str, int] = {}  # email -> bu batch'te kaç REDDETTİ (storm sınırı; strike DEĞİL)
+        self._captcha_key: str = ""              # CapSolver anahtarı (batch başında redis'ten yüklenir)
+        self._captcha_service: str = "capsolver"
         self._captcha_enabled: bool = False
 
     def _record(self, email: str, ok: bool) -> None:
@@ -288,10 +289,11 @@ class FarmingEngine:
         s["ok" if ok else "fail"] += 1
 
     async def _load_captcha_cfg(self, redis) -> None:
-        """Batch başında 2captcha ayarını redis'ten yükle. Kapalı/anahtarsızsa çözücü no-op kalır
+        """Batch başında CapSolver ayarını yükle. ÖNCELİK: panel (redis config:captcha). Panelde yoksa
+        .env (settings.captcha_api_key) YEDEK olarak kullanılır. Kapalı/anahtarsızsa çözücü no-op kalır
         (login akışı ASLA değişmez). Hata olursa sessizce devre dışı."""
         self._captcha_key = ""
-        self._captcha_service = "2captcha"
+        self._captcha_service = "capsolver"
         self._captcha_enabled = False
         try:
             from services.user_settings import get_captcha
@@ -299,7 +301,12 @@ class FarmingEngine:
             if cap.get("enabled") and cap.get("api_key"):
                 self._captcha_enabled = True
                 self._captcha_key = cap.get("api_key", "")
-                self._captcha_service = cap.get("service", "2captcha")
+                self._captcha_service = cap.get("service", "capsolver")
+            elif getattr(settings, "captcha_api_key", ""):
+                # .env YEDEĞİ: panelde anahtar yoksa ama .env'e konduysa onu kullan (aktif say).
+                self._captcha_enabled = True
+                self._captcha_key = settings.captcha_api_key
+                self._captcha_service = getattr(settings, "captcha_service", "capsolver") or "capsolver"
         except Exception:
             pass
 
@@ -310,11 +317,9 @@ class FarmingEngine:
             return
         try:
             from services.captcha_solver import solve_image_captcha
-            status, _ = await solve_image_captcha(
+            await solve_image_captcha(
                 page, self._captcha_key, self._captcha_service, log=self._log
             )
-            if status == "solved":
-                self._captcha_solved = getattr(self, "_captcha_solved", 0) + 1
         except Exception:
             pass
 
@@ -460,6 +465,7 @@ class FarmingEngine:
         self._skipped = {}
         self._deadlogin = {}       # her batch TEMİZ başlar (oto-iyileşme)
         self._red_skipped = {}
+        self._reddetti_count = {}
         await self._load_captcha_cfg(redis)
 
         # Günlük-limit clamp'i checkpoint/start_index BİLİNDİKTEN SONRA uygulanır (aşağıda) —
@@ -631,6 +637,7 @@ class FarmingEngine:
         self._skipped = {}
         self._deadlogin = {}       # her batch TEMİZ başlar → geçen batch'te işaretlenen hesap yeniden denenir (oto-iyileşme)
         self._red_skipped = {}     # bu batch'te KIRMIZI olduğu için atlanan hesaplar {email: strike}
+        self._reddetti_count = {}  # bu batch'te hesap-başı REDDETTİ sayacı (storm sınırı)
         await self._load_captcha_cfg(redis)
         self.proxy_rotator.load_proxies(proxy_urls)
         base_keywords = keywords or self.keyword_manager.get_keywords(sector)
@@ -888,11 +895,13 @@ class FarmingEngine:
                         self._record(email, False)
                         await self._log(f"✗ {email} · Login FAILED: {_why or 'bilinmeyen sebep'}", "ERROR")
                         # HATA YÖNLENDİRME (kullanıcı isteği — hesabı haksız yere suçlama):
-                        #  • "Google REDDETTİ" (IP/hesap işaretli, çok deneme) = HESABIN değil PROXY'nin/IP'nin
-                        #    sorunu → strike YOK, ölü-işaretleme YOK (başka proxy'yle tekrar denenir). Aynı
-                        #    proxy'den tekrarlarsa proxy'yi geçici flag'le (rotasyon dışı).
-                        #  • 2FA / parola adımı = hesabın KENDİ deterministik sorunu → strike +1; 2. strike'ta
-                        #    KIRMIZI + sonraki üretimlerde sıradan çıkar. Kalan worker'ları boşa deneme.
+                        #  • "Google REDDETTİ" (IP/hesap işaretli) = PROXY/IP sorunu → strike YOK, deadlogin YOK
+                        #    (başka proxy'yle tekrar). Aynı proxy tekrarlarsa proxy'yi flag'le. Bir hesap bu batch'te
+                        #    ÇOK REDDETTİ alırsa STRIKE'sız olarak bu batch'te durdurulur (kredi/havuz yakma sınırı).
+                        #  • "2FA geçmedi" = hesabın KENDİ deterministik sorunu (TOTP/2FA bozuk) → strike +1;
+                        #    2. strike'ta KIRMIZI + sonraki üretimlerde sıradan çıkar.
+                        #  • "parola adımı gelmedi" = BELİRSİZ (yavaş proxy 20sn timeout'u da bunu tetikler) →
+                        #    strike YOK (iyi hesabı yanlışlıkla KIRMIZI yapma); sadece bu batch'te kalanları atla.
                         _reason = _why or ""
                         _r = getattr(self, "_redis", None)
                         if "REDDETTİ" in _reason:
@@ -911,15 +920,27 @@ class FarmingEngine:
                                     _at = time.strftime("%Y-%m-%d %H:%M", time.gmtime(time.time() + 3 * 3600))
                                     await _r.hset("farming:rejected_ip", email,
                                                   orjson.dumps({"reason": _reason, "at": _at, "proxy": _srv}))
+                                # STORM SINIRI: hesap bu batch'te çok REDDETTİ aldıysa kalan worker'larını durdur
+                                # (STRIKE YOK — hesabın suçu değil). ScrapingBee kredi yakmasını + CSV'de tek bozuk
+                                # hesabın havuzu banlayıp İYİ hesapları aç bırakmasını sınırlar. Sonraki batch tekrar dener.
+                                self._reddetti_count[email] = self._reddetti_count.get(email, 0) + 1
+                                if (self._reddetti_count[email] >= settings.account_reddetti_cap
+                                        and email not in self._deadlogin):
+                                    self._deadlogin[email] = "REDDETTİ (çok tekrar — bu batch atlandı)"
+                                    await self._log(
+                                        f"⏭ {email} · {self._reddetti_count[email]}× REDDETTİ — bu batch atlanıyor "
+                                        f"(STRIKE YOK, sonraki batch'te tekrar denenir)", "WARNING",
+                                    )
                             except Exception:
                                 pass
                             return None
-                        if any(k in _reason for k in ("2FA", "parola adımı gelmedi")):
+                        if "2FA" in _reason:
+                            # DETERMİNİSTİK hesap sorunu (TOTP/2FA bozuk) → strike + KIRMIZI olabilir.
                             if email not in self._deadlogin:
                                 self._deadlogin[email] = _reason
                                 await self._log(
                                     f"⛔ {email} login veremiyor ({_reason}) — bu hesabın KALAN worker'ları "
-                                    f"atlanıyor (boşa üretim/tekrar TOTP hatası yok). Hesabın secret'ını/durumunu düzeltin.",
+                                    f"atlanıyor (boşa TOTP hatası yok). Hesabın secret'ını/durumunu düzeltin.",
                                     "ERROR",
                                 )
                                 # KALICI KAYIT + strike: sorunlu hesabı redis'e yaz (Çıktılar'da gösterilir,
@@ -940,6 +961,15 @@ class FarmingEngine:
                                             )
                                 except Exception:
                                     pass
+                        elif "parola adımı gelmedi" in _reason:
+                            # BELİRSİZ/geçici (yavaş proxy de tetikler) → STRIKE YOK, KIRMIZI YOK. Sadece bu batch'te
+                            # kalan worker'ları atla (boşa deneme yok); sonraki batch hesabı tekrar dener.
+                            if email not in self._deadlogin:
+                                self._deadlogin[email] = _reason
+                                await self._log(
+                                    f"⏭ {email} · parola adımı gelmedi (çoğunlukla yavaş proxy) — bu batch atlanıyor, "
+                                    f"STRIKE YOK (sonraki batch'te tekrar denenir)", "WARNING",
+                                )
                         return None
                 else:
                     # TURBO ama master login başarısız → anonim (girişsiz) session ÜRETME.
@@ -1002,8 +1032,10 @@ class FarmingEngine:
                     # + ölü-işaretten çıkar. (redis hdel yoksa no-op; her başarıda ucuz, korumalı.)
                     if self._redis is not None:
                         await self._redis.hdel("farming:failed_accounts", email)
+                        await self._redis.hdel("farming:rejected_ip", email)   # IP-reddi bayat kaydını da temizle
                         await reset_fail_count(self._redis, email)
                     self._deadlogin.pop(email, None)
+                    self._reddetti_count.pop(email, None)
                 except Exception:
                     pass
                 elapsed = round(time.time() - start_time, 1)

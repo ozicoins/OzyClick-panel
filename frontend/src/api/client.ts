@@ -255,7 +255,7 @@ export const api = {
   testTelegram: () =>
     request<{ ok: boolean; detail: string }>('/api/v1/settings/telegram/test', { method: 'POST' }),
 
-  // Captcha (2captcha) — anahtar maskeli saklanır (redis), sohbet/GitHub'a asla düşmez.
+  // Captcha (CapSolver) — anahtar maskeli saklanır (redis), sohbet/GitHub'a asla düşmez.
   getCaptcha: () =>
     request<import('../types').CaptchaSettings>('/api/v1/settings/captcha'),
   setCaptcha: (body: { api_key: string; enabled: boolean; service?: string }) =>

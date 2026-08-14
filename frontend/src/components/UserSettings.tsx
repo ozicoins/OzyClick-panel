@@ -47,7 +47,7 @@ export default function UserSettings() {
     onError: () => toast.error('Test gönderilemedi'),
   })
 
-  // --- Captcha (2captcha) ---
+  // --- Captcha (CapSolver) ---
   const { data: cap } = useQuery<CaptchaSettings>({ queryKey: ['captcha-settings'], queryFn: () => api.getCaptcha() })
   const [capKey, setCapKey] = useState('')
   const [capEnabled, setCapEnabled] = useState(false)
@@ -142,7 +142,7 @@ export default function UserSettings() {
 
       <div className="h-px bg-iuBorder/60" />
 
-      {/* Captcha (2captcha) */}
+      {/* Captcha (CapSolver) */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-xs text-slate-300 flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-iuGold" /> Captcha Çözücü (CapSolver)</span>

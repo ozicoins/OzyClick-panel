@@ -433,6 +433,7 @@ async def remove_failed_account(request: Request, email: str = Query(...),
         r = request.app.state.redis
         await r.hdel("farming:failed_accounts", email)
         await r.hdel("farming:fail_counts", email)   # strike sıfırla → KIRMIZI'dan çıkar, sıraya geri
+        await r.hdel("farming:rejected_ip", email)   # IP-reddi bayat kaydını da temizle
     except Exception:
         pass
     return {"removed": email}

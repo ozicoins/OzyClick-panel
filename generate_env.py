@@ -95,9 +95,10 @@ JWT_ACCESS_TOKEN_EXPIRE_MINUTES=1440
 ADMIN_USERNAME={admin_user}
 ADMIN_PASSWORD_HASH={admin_hash}
 
-# ──── Captcha (opsiyonel) ────
+# ──── Captcha (opsiyonel · CapSolver) ────
+# TERCİH EDİLEN: anahtarı PANELDEN gir (⚙️ → Captcha) → redis'te maskeli. .env yalnızca yedek.
 CAPTCHA_API_KEY=
-CAPTCHA_SERVICE=2captcha
+CAPTCHA_SERVICE=capsolver
 
 # ──── Credential at-rest encryption ────
 CREDENTIAL_KEY={cred_key}
