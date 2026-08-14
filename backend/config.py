@@ -100,9 +100,9 @@ class Settings(BaseSettings):
     curl_cffi_impersonate: str = "chrome120"
     stealth_enabled: bool = True
 
-    # Captcha (optional)
+    # Captcha (optional) — tek marka CapSolver (clicker paneliyle aynı)
     captcha_api_key: str = ""
-    captcha_service: str = "2captcha"
+    captcha_service: str = "capsolver"
 
     # Sorunlu-hesap / proxy stratejisi
     account_red_strikes: int = 2      # bu kadar üretimde login veremeyen hesap KIRMIZI + sıradan çıkar

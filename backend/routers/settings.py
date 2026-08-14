@@ -51,11 +51,11 @@ async def telegram_test(request: Request, _user: dict = Depends(get_current_user
     return {"ok": False, "detail": "Gönderilemedi. bot_token / chat_id doğru mu ve bildirim AÇIK mı?"}
 
 
-# ---------- Captcha (2captcha) ----------
+# ---------- Captcha (CapSolver) ----------
 class CaptchaRequest(BaseModel):
     api_key: str = ""
     enabled: bool = False
-    service: str = "2captcha"
+    service: str = "capsolver"
 
 
 @router.get("/captcha")
@@ -70,7 +70,7 @@ async def captcha_put(req: CaptchaRequest, request: Request, _user: dict = Depen
 
 @router.post("/captcha/test")
 async def captcha_test(request: Request, _user: dict = Depends(get_current_user)):
-    """2captcha bakiyesini sorgula (anahtar geçerli mi + para var mı)."""
+    """CapSolver bakiyesini sorgula (anahtar geçerli mi + para var mı)."""
     import httpx
     cfg = await get_captcha(request.app.state.redis, include_secret=True)
     key = cfg.get("api_key", "")
@@ -78,12 +78,12 @@ async def captcha_test(request: Request, _user: dict = Depends(get_current_user)
         return {"ok": False, "detail": "Anahtar girilmemiş."}
     try:
         async with httpx.AsyncClient(timeout=20) as client:
-            r = await client.get("https://2captcha.com/res.php",
-                                  params={"key": key, "action": "getbalance", "json": 1})
+            r = await client.post("https://api.capsolver.com/getBalance",
+                                  json={"clientKey": key})
             data = r.json()
-        if data.get("status") == 1:
-            return {"ok": True, "detail": f"Anahtar geçerli · bakiye ${data.get('request')}"}
-        return {"ok": False, "detail": f"2captcha: {data.get('request')}"}
+        if not data.get("errorId"):
+            return {"ok": True, "detail": f"Anahtar geçerli · bakiye ${data.get('balance')}"}
+        return {"ok": False, "detail": f"CapSolver: {data.get('errorDescription') or data.get('errorCode')}"}
     except Exception as e:
         return {"ok": False, "detail": f"Sorgulanamadı: {e}"}
 

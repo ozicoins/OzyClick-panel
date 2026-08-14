@@ -85,8 +85,9 @@ _CAPTCHA_KEY = "config:captcha"   # redis: {"api_key","service","enabled"}
 
 
 async def get_captcha(redis, include_secret: bool = False) -> dict:
-    """Captcha (2captcha) ayarı. include_secret=False → api_key maskeli (panel gösterimi)."""
-    cfg = {"enabled": False, "api_key": "", "service": "2captcha"}
+    """Captcha (CapSolver) ayarı. include_secret=False → api_key maskeli (panel gösterimi).
+    Tek marka: CapSolver — clicker paneli de aynı servisi kullanır."""
+    cfg = {"enabled": False, "api_key": "", "service": "capsolver"}
     if redis is not None:
         try:
             raw = await redis.get(_CAPTCHA_KEY)
@@ -103,7 +104,7 @@ async def get_captcha(redis, include_secret: bool = False) -> dict:
     return cfg
 
 
-async def set_captcha(redis, api_key: str, enabled: bool, service: str = "2captcha") -> dict:
+async def set_captcha(redis, api_key: str, enabled: bool, service: str = "capsolver") -> dict:
     """Captcha ayarını kaydet. api_key boş/maskeli gelirse ESKİSİ korunur (üzerine yazma)."""
     if redis is None:
         return await get_captcha(None)
@@ -111,7 +112,7 @@ async def set_captcha(redis, api_key: str, enabled: bool, service: str = "2captc
     k = (api_key or "").strip()
     if not k or "…" in k or "•" in k:   # maskeli/boş → eskisini koru
         k = cur.get("api_key", "")
-    cfg = {"enabled": bool(enabled), "api_key": k, "service": (service or "2captcha").strip()}
+    cfg = {"enabled": bool(enabled), "api_key": k, "service": (service or "capsolver").strip()}
     await redis.set(_CAPTCHA_KEY, orjson.dumps(cfg))
     return await get_captcha(redis, include_secret=False)
 

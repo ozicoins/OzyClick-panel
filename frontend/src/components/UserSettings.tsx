@@ -53,7 +53,7 @@ export default function UserSettings() {
   const [capEnabled, setCapEnabled] = useState(false)
   useEffect(() => { if (cap) setCapEnabled(!!cap.enabled) }, [cap])
   const saveCap = useMutation({
-    mutationFn: () => api.setCaptcha({ api_key: capKey, enabled: capEnabled, service: '2captcha' }),
+    mutationFn: () => api.setCaptcha({ api_key: capKey, enabled: capEnabled, service: 'capsolver' }),
     onSuccess: (d) => {
       qc.setQueryData(['captcha-settings'], d)
       toast.success('Captcha ayarı kaydedildi')
@@ -145,14 +145,14 @@ export default function UserSettings() {
       {/* Captcha (2captcha) */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <span className="text-xs text-slate-300 flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-iuGold" /> Captcha Çözücü (2captcha)</span>
+          <span className="text-xs text-slate-300 flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-iuGold" /> Captcha Çözücü (CapSolver)</span>
           <label className="flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer">
             <input type="checkbox" checked={capEnabled} onChange={e => setCapEnabled(e.target.checked)} className="accent-iuGold" />
             Açık
           </label>
         </div>
         <input type="password" value={capKey} onChange={e => setCapKey(e.target.value)}
-          placeholder={cap?.configured ? `Kayıtlı: ${cap.api_key} (değiştirmek için yeni anahtar gir)` : '2captcha API anahtarı'}
+          placeholder={cap?.configured ? `Kayıtlı: ${cap.api_key} (değiştirmek için yeni anahtar gir)` : 'CapSolver API anahtarı (CAP-...)'}
           className={inputCls} autoComplete="off" />
         <div className="flex gap-2">
           <button onClick={() => saveCap.mutate()} disabled={saveCap.isPending}
@@ -170,7 +170,7 @@ export default function UserSettings() {
           </p>
         )}
         <p className="text-[10px] text-slate-600 leading-snug">
-          Login'de nadiren çıkan <b className="text-slate-400">resim-captcha</b> otomatik çözülür (2captcha, ~$1 = ~1000 captcha).
+          Login'de nadiren çıkan <b className="text-slate-400">resim-captcha</b> otomatik çözülür (<b className="text-slate-400">CapSolver</b> — clicker paneliyle aynı marka, tek bakiye).
           Anahtar maskeli saklanır. Kapalıyken/anahtarsızken üretim aynen çalışır (captcha gelirse o hesap atlanır).
         </p>
       </div>
