@@ -1,6 +1,6 @@
 import asyncio
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import Annotated, Literal
@@ -199,67 +199,70 @@ async def launch_farm_all(req: "FarmAllRequest", redis, db: AsyncSession, user_i
     batch_id = uuid.uuid4()
     engine = FarmingEngine()
     _active_engines[str(batch_id)] = engine
-    from services.account_store import get_accounts
-    raw = await get_accounts(redis, include_sensitive=True)
-    if not raw:
-        _active_engines.pop(str(batch_id), None)
-        raise HTTPException(status_code=400, detail="Havuzda hesap yok — önce hesap ekleyin")
-
-    accounts, proxy_urls = [], []
-    for a in raw:
-        if not a.get("email") or not a.get("password"):
-            continue
-        accounts.append({
-            "email": a["email"],
-            "password": a.get("password", ""),
-            "totp_secret": a.get("totp_secret", ""),
-            "recovery_email": a.get("recovery_email", ""),
-            "proxy_ip": a.get("proxy_ip", ""),
-        })
-        if a.get("proxy_ip"):
-            proxy_urls.append(a["proxy_ip"])
-    if not accounts:
-        _active_engines.pop(str(batch_id), None)
-        raise HTTPException(status_code=400, detail="Havuzda parolası olan hesap yok")
-
-    total = req.count_per_account * len(accounts)
-
-    batch = Batch(
-        id=batch_id, user_id=user_id_val, total_profiles=total, sector=req.sector,
-        farming_mode=req.mode, warming_keywords=req.keywords, lifespan_days=req.lifespan_days,
-        status=BatchStatus.PENDING, created_at=datetime.now(timezone.utc),
-    )
-    db.add(batch)
-    await db.commit()
-
-    # engine zaten yukarıda rezerve edildi (_active_engines[batch_id]).
-    from database.connection import async_session_factory
-    from services.proxy_config import load_proxy_settings
-    proxy_cfg = await load_proxy_settings(redis)
-    engine.proxy_rotator.set_scrapingbee(proxy_cfg)
-    if proxy_cfg.get("provider") == "list" and proxy_cfg.get("proxies"):
-        proxy_urls = list(proxy_cfg["proxies"])
-    from services.runtime_config import get_dry_run
-    engine._dry_run = await get_dry_run(redis)
-    from services.target_config import get_effective_targets
-    engine._target_urls = await get_effective_targets(redis)
-
+    # Rezervasyondan SONRA HERHANGİ bir hata → motoru _active_engines'den çıkar. Aksi halde
+    # (önceki datetime-shadow bug'ında olduğu gibi) motor takılı kalıp "üretim çalışıyor" görünür
+    # ama hiçbir şey üretmez (chrome pool 0). Tek kaynak temizlik.
     try:
-        await redis.set(f"batch:{batch.id}:email", f"TÜM HAVUZ ({len(accounts)} hesap)", ex=604800)
+        from services.account_store import get_accounts
+        raw = await get_accounts(redis, include_sensitive=True)
+        if not raw:
+            raise HTTPException(status_code=400, detail="Havuzda hesap yok — önce hesap ekleyin")
+
+        accounts, proxy_urls = [], []
+        for a in raw:
+            if not a.get("email") or not a.get("password"):
+                continue
+            accounts.append({
+                "email": a["email"],
+                "password": a.get("password", ""),
+                "totp_secret": a.get("totp_secret", ""),
+                "recovery_email": a.get("recovery_email", ""),
+                "proxy_ip": a.get("proxy_ip", ""),
+            })
+            if a.get("proxy_ip"):
+                proxy_urls.append(a["proxy_ip"])
+        if not accounts:
+            raise HTTPException(status_code=400, detail="Havuzda parolası olan hesap yok")
+
+        total = req.count_per_account * len(accounts)
+
+        batch = Batch(
+            id=batch_id, user_id=user_id_val, total_profiles=total, sector=req.sector,
+            farming_mode=req.mode, warming_keywords=req.keywords, lifespan_days=req.lifespan_days,
+            status=BatchStatus.PENDING, created_at=datetime.now(timezone.utc),
+        )
+        db.add(batch)
+        await db.commit()
+
+        from database.connection import async_session_factory
+        from services.proxy_config import load_proxy_settings
+        proxy_cfg = await load_proxy_settings(redis)
+        engine.proxy_rotator.set_scrapingbee(proxy_cfg)
+        if proxy_cfg.get("provider") == "list" and proxy_cfg.get("proxies"):
+            proxy_urls = list(proxy_cfg["proxies"])
+        from services.runtime_config import get_dry_run
+        engine._dry_run = await get_dry_run(redis)
+        from services.target_config import get_effective_targets
+        engine._target_urls = await get_effective_targets(redis)
+
+        try:
+            await redis.set(f"batch:{batch.id}:email", f"TÜM HAVUZ ({len(accounts)} hesap)", ex=604800)
+        except Exception:
+            pass
+
+        task = asyncio.create_task(
+            _run_farming_multi(batch.id, engine, accounts, req, proxy_urls, redis, async_session_factory)
+        )
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
     except Exception:
-        pass
+        _active_engines.pop(str(batch_id), None)   # HER hata → rezervasyonu geri al
+        raise
 
-    task = asyncio.create_task(
-        _run_farming_multi(batch.id, engine, accounts, req, proxy_urls, redis, async_session_factory)
-    )
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
-
-    # ÇAKIŞMA GUARD: bugün üretim yapıldı işaretle (Türkiye tarihi) → zamanlayıcı aynı gün
-    # yeniden auto-üretim yapmaz (manuel VEYA zamanlı fark etmez; unutup çift üretim olmaz).
+    # ÇAKIŞMA GUARD: bugün üretim yapıldı işaretle (Türkiye tarihi) → zamanlayıcı aynı gün yeniden
+    # auto-üretim yapmaz. Modül-seviyesi datetime/timezone/timedelta (fonksiyon-içi import YOK → shadow yok).
     try:
         from services.automation_config import set_schedule_runtime
-        from datetime import datetime, timezone, timedelta
         _tr_date = datetime.now(timezone(timedelta(hours=3))).strftime("%Y-%m-%d")
         await set_schedule_runtime(redis, {"last_farm_date": _tr_date})
     except Exception:
