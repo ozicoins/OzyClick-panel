@@ -30,9 +30,12 @@ _RESULT_URL = "https://api.capsolver.com/getTaskResult"
 
 
 async def captcha_present(page) -> bool:
-    """Sayfada inline resim-captcha var mı (hızlı kontrol, no-op yol için)."""
+    """Sayfada GÖRÜNÜR inline resim-captcha var mı (gizli template değil — false-positive önler)."""
     try:
-        return await page.locator(_CAPTCHA_IMG).count() > 0
+        img = page.locator(_CAPTCHA_IMG)
+        if await img.count() == 0:
+            return False
+        return await img.first.is_visible()
     except Exception:
         return False
 

@@ -1196,7 +1196,32 @@ class FarmingEngine:
                 await pass_input.wait_for(state="visible", timeout=20000)
             except Exception:
                 u = page.url.lower()
-                if "rejected" in u:
+                # POST-SUBMIT CAPTCHA: parola gelmedi + (URL'de 'captcha' VEYA sayfada GÖRÜNÜR resim-captcha).
+                # Çözücü açık+anahtarlıysa DENE — CapSolver BURADA çağrılır. Çözülürse cevabı gönder +
+                # parola alanını TEKRAR bekle. Captcha yoksa/çözülemezse eski davranış (aşağıda) aynen çalışır.
+                if self._captcha_enabled and self._captcha_key:
+                    try:
+                        from services.captcha_solver import captcha_present, solve_image_captcha
+                        if "captcha" in u or await captcha_present(page):
+                            _st, _ = await asyncio.wait_for(
+                                solve_image_captcha(page, self._captcha_key, self._captcha_service, log=self._log),
+                                timeout=25,
+                            )
+                            if _st == "solved":
+                                try:
+                                    await page.keyboard.press("Enter")   # captcha cevabını gönder
+                                except Exception:
+                                    pass
+                                try:
+                                    await pass_input.wait_for(state="visible", timeout=20000)
+                                    u = "__solved__"   # parola alanı geldi → captcha aşıldı, akışa devam
+                                except Exception:
+                                    u = page.url.lower()
+                    except Exception:
+                        pass
+                if u == "__solved__":
+                    pass   # captcha aşıldı → aşağıdaki parola girişine devam et
+                elif "rejected" in u:
                     await self._log(
                         "Google girişi REDDETTİ (signin/rejected): hesaba çok fazla otomatik deneme "
                         "yapıldığı için Google hesabı/IP'yi işaretledi. Bir süre bekleyin, taze hesap "
@@ -1204,7 +1229,7 @@ class FarmingEngine:
                     )
                     return False, "Google REDDETTİ (hesap/IP işaretli — çok deneme)"
                 elif "captcha" in u:
-                    await self._log("Google CAPTCHA istedi — otomatik giriş engellendi.", "ERROR")
+                    await self._log("Google CAPTCHA istedi — çözülemedi/geçilemedi (flag'li IP olabilir).", "ERROR")
                     return False, "CAPTCHA istendi (otomatik giriş engellendi)"
                 else:
                     logger.warning("Parola alanı gelmedi (url=%s)", page.url)
