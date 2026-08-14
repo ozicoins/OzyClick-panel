@@ -190,6 +190,13 @@ export interface BackupConfig {
   retention_days: number
 }
 
+// Login veremeyen sorunlu hesap (2FA ek-doğrulama / REDDETTİ / parola)
+export interface FailedAccount {
+  email: string
+  reason: string
+  at: string
+}
+
 export type ProxyQuality = 'classic' | 'premium' | 'stealth'
 
 export interface ProxySettings {

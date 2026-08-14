@@ -13,6 +13,7 @@ import KeywordManager from './components/KeywordManager'
 import FarmingControlHub from './components/FarmingControlHub'
 import ExporterPanel from './components/ExporterPanel'
 import PoolHealthCard from './components/PoolHealthCard'
+import FailedAccountsCard from './components/FailedAccountsCard'
 import WorkerMonitor from './components/WorkerMonitor'
 import GmailPoolManager from './components/GmailPoolManager'
 import SessionKeepAlive from './components/SessionKeepAlive'
@@ -317,12 +318,18 @@ export default function App() {
         {/* ÇIKTILAR — havuz sağlığı (toplu canlılık) + toplu indirme + Drive yedekleri.
             items-stretch (varsayılan) → iki kart eşit yükseklikte, alt kenarları hizalı. */}
         {tab === 'outputs' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-4xl mx-auto">
+          <div className="max-w-4xl mx-auto space-y-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <ErrorBoundary>
+                <PoolHealthCard />
+              </ErrorBoundary>
+              <ErrorBoundary>
+                <ExporterPanel email="" />
+              </ErrorBoundary>
+            </div>
+            {/* Sorunlu hesaplar (2FA ek-doğrulama/REDDETTİ) — sorun varsa görünür, kalıcı */}
             <ErrorBoundary>
-              <PoolHealthCard />
-            </ErrorBoundary>
-            <ErrorBoundary>
-              <ExporterPanel email="" />
+              <FailedAccountsCard />
             </ErrorBoundary>
           </div>
         )}

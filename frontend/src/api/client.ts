@@ -229,6 +229,14 @@ export const api = {
   getScheduleStatus: () =>
     request<import('../types').ScheduleStatus>('/api/v1/settings/schedule/status'),
 
+  // Login veremeyen sorunlu hesaplar (2FA ek-doğrulama / REDDETTİ) — Çıktılar'da gösterilir.
+  getFailedAccounts: () =>
+    request<{ accounts: import('../types').FailedAccount[]; count: number }>('/api/v1/export/failed-accounts'),
+  clearFailedAccounts: () =>
+    request<{ cleared: boolean }>('/api/v1/export/failed-accounts/clear', { method: 'POST' }),
+  removeFailedAccount: (email: string) =>
+    request<{ removed: string }>(`/api/v1/export/failed-accounts/remove?email=${encodeURIComponent(email)}`, { method: 'POST' }),
+
   // Otomatik ölü-çerez temizliği
   getAutoCleanup: () =>
     request<{ enabled: boolean }>('/api/v1/settings/auto-cleanup'),

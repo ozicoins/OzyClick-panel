@@ -586,8 +586,8 @@ class FarmingEngine:
         # İş listesi: her hesap × count_per_account — AMA günlük limiti aşan hesap kırpılır/atlanır
         # (aşırı-farmlama koruması; Google flag'lemesini azaltır).
         limit = settings.per_account_daily_limit
-        work = []
         dirs = {}
+        acct_n = []   # [(acc, n)] — hesap sırası korunur
         for acc in accounts:
             em = acc["email"]
             odir = os.path.join(settings.cookies_output_dir, em.replace("@", "_at_").replace(".", "_").replace("/", "_").replace("\\", "_"))
@@ -600,8 +600,18 @@ class FarmingEngine:
                 if n == 0:
                     self._skipped[em] = used   # günlük limit dolu → bugün atla
                     continue
-            for li in range(1, n + 1):
-                work.append((acc, li))
+            acct_n.append((acc, n))
+
+        # ROUND-ROBIN diziliş: [A1,B1,C1,...(tüm hesaplar TUR 1)..., A2,B2,...(TUR 2)...] — hesap-gruplu
+        # ([A1,A2,...,A50,B1,...]) DEĞİL. Aksi halde ilk num_workers worker AYNI hesaba (A) eşzamanlı
+        # login yapıyordu → Google "çok deneme" flag'liyordu (REDDETTİ). Round-robin'de her tur her
+        # hesaptan 1 profil; hesap sayısı ≥ worker sayısı iken bir hesaba ASLA 2 worker aynı anda girmez.
+        work = []
+        _max_n = max((n for _, n in acct_n), default=0)
+        for _r in range(1, _max_n + 1):
+            for acc, n in acct_n:
+                if _r <= n:
+                    work.append((acc, _r))
 
         self._planned_total = len(work)   # gerçek hedef (kırpımdan sonra) → panelde doğru toplam
         per_acct = {}   # email -> profiles
@@ -819,6 +829,16 @@ class FarmingEngine:
                                     f"atlanıyor (boşa üretim/tekrar TOTP hatası yok). Hesabın secret'ını/durumunu düzeltin.",
                                     "ERROR",
                                 )
+                                # KALICI KAYIT: sorunlu hesabı redis'e yaz (Çıktılar'da gösterilir,
+                                # panel yenilense de kalır). HSET atomik → eşzamanlı worker'larda yarış yok.
+                                try:
+                                    _r = getattr(self, "_redis", None)
+                                    if _r is not None:
+                                        _at = time.strftime("%Y-%m-%d %H:%M", time.gmtime(time.time() + 3 * 3600))
+                                        await _r.hset("farming:failed_accounts", email,
+                                                      orjson.dumps({"reason": _why, "at": _at}))
+                                except Exception:
+                                    pass
                         return None
                 else:
                     # TURBO ama master login başarısız → anonim (girişsiz) session ÜRETME.

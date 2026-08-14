@@ -365,6 +365,48 @@ async def put_backup_config_ep(req: BackupConfigReq, _user: dict = Depends(get_c
     return set_backup_config(req.interval_hours, req.retention_days)
 
 
+@router.get("/export/failed-accounts")
+async def get_failed_accounts(request: Request, _user: dict = Depends(get_current_user)):
+    """Login veremeyen SORUNLU hesaplar (2FA ek-doğrulama / Google REDDETTİ / parola) — email+sebep+zaman.
+    Üretim sırasında KALICI kaydedilir; panel yenilense de kalır. Kullanıcı düzeltince temizler."""
+    redis = request.app.state.redis
+    out = []
+    try:
+        raw = await redis.hgetall("farming:failed_accounts")
+        for email, val in (raw or {}).items():
+            em = email.decode() if isinstance(email, (bytes, bytearray)) else email
+            try:
+                d = orjson.loads(val)
+            except Exception:
+                d = {"reason": (val.decode() if isinstance(val, (bytes, bytearray)) else str(val)), "at": ""}
+            out.append({"email": em, "reason": d.get("reason", ""), "at": d.get("at", "")})
+    except Exception:
+        pass
+    out.sort(key=lambda x: x.get("at", ""), reverse=True)
+    return {"accounts": out, "count": len(out)}
+
+
+@router.post("/export/failed-accounts/clear")
+async def clear_failed_accounts(request: Request, _user: dict = Depends(get_current_user)):
+    """Sorunlu hesap listesini temizle (hesapları düzelttikten sonra)."""
+    try:
+        await request.app.state.redis.delete("farming:failed_accounts")
+    except Exception:
+        pass
+    return {"cleared": True}
+
+
+@router.post("/export/failed-accounts/remove")
+async def remove_failed_account(request: Request, email: str = Query(...),
+                                _user: dict = Depends(get_current_user)):
+    """Tek bir sorunlu hesabı listeden çıkar (o hesabı düzelttiysen)."""
+    try:
+        await request.app.state.redis.hdel("farming:failed_accounts", email)
+    except Exception:
+        pass
+    return {"removed": email}
+
+
 @router.get("/export/all")
 async def download_all(
     format: str = Query("adswhite", pattern="^(adswhite|gologin|universal|netscape|raw)$"),
