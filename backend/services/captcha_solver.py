@@ -55,7 +55,12 @@ async def solve_image_captcha(page, api_key: str, service: str = "capsolver", lo
     try:
         img = page.locator(_CAPTCHA_IMG)
         if await img.count() == 0:
-            return ("none", "")               # ← 99% yol: captcha yok, anında çık
+            return ("none", "")               # ← captcha elementi hiç yok
+        # KRİTİK: DOM'da olması YETMEZ — GÖRÜNÜR olmalı. Google login sayfasında img#captchaimg
+        # çoğu zaman GİZLİ template olarak DURUR (aktif captcha DEĞİL). Sadece 'var mı' bakarsak
+        # HER login'de 'captcha var' sanıp boşa uğraşır → üretim durur. Görünür değilse = captcha yok.
+        if not await img.first.is_visible():
+            return ("none", "")
     except Exception:
         return ("none", "")
 
