@@ -88,11 +88,11 @@ async def solve_image_captcha(page, api_key: str, service: str = "capsolver", lo
                 b64 = src.split(",", 1)[1] if "," in src else None
                 await _say("🧩 captcha resmi data-URI'den alındı", "INFO")
             elif src:
+                from urllib.parse import urljoin
                 if src.startswith("//"):
                     src = "https:" + src
-                elif src.startswith("/"):
-                    from urllib.parse import urljoin
-                    src = urljoin(page.url, src)
+                elif not src.startswith(("http://", "https://")):
+                    src = urljoin(page.url, src)   # kök-göreli VE düz-göreli src → mutlak URL
                 try:
                     resp = await page.request.get(src, timeout=8000)
                     body = await resp.body()
