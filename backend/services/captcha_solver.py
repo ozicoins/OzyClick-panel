@@ -29,6 +29,64 @@ _CREATE_URL = "https://api.capsolver.com/createTask"
 _RESULT_URL = "https://api.capsolver.com/getTaskResult"
 
 
+async def solve_recaptcha_login(page, api_key: str, log=None) -> tuple[str, str]:
+    """Google login reCAPTCHA (Enterprise) çözmeyi DENE — CapSolver ReCaptchaV2EnterpriseTaskProxyLess.
+    sitekey reCAPTCHA iframe'inin k= param'ından alınır; token g-recaptcha-response'a enjekte edilir.
+    UYARI: Google'ın KENDİ login reCAPTCHA'sı en zorlardan — token çözülse bile Google kabul etmeyebilir
+    (cihaz/davranış sinyalleri + flag'li IP). 'solved' = token enjekte edildi (submit çağıran tarafta)."""
+    async def _say(m, l="INFO"):
+        if log:
+            try:
+                await log(m, l)
+            except Exception:
+                pass
+    if not api_key:
+        return ("nokey", "")
+    try:
+        sitekey = await page.evaluate(
+            "() => { const f=document.querySelector('iframe[src*=\"recaptcha\"]');"
+            " if(f){const m=(f.src||'').match(/[?&]k=([^&]+)/); if(m) return m[1];}"
+            " const el=document.querySelector('[data-sitekey]'); return el?el.getAttribute('data-sitekey'):null; }"
+        )
+        if not sitekey:
+            return ("failed", "reCAPTCHA sitekey bulunamadı")
+        await _say(f"🧩 reCAPTCHA (Enterprise) — CapSolver'a gönderiliyor (sitekey {str(sitekey)[:10]}…)", "INFO")
+        async with httpx.AsyncClient(timeout=150) as client:
+            r = await client.post(_CREATE_URL, json={
+                "clientKey": api_key,
+                "task": {"type": "ReCaptchaV2EnterpriseTaskProxyLess",
+                         "websiteURL": page.url, "websiteKey": sitekey},
+            })
+            data = r.json()
+            if data.get("errorId"):
+                await _say(f"🧩 reCAPTCHA gönderilemedi (CapSolver: {data.get('errorDescription') or data.get('errorCode')})", "ERROR")
+                return ("failed", str(data.get("errorDescription")))
+            task_id = data.get("taskId")
+            token = None
+            for _ in range(40):     # ~120s
+                await asyncio.sleep(3)
+                rr = await client.post(_RESULT_URL, json={"clientKey": api_key, "taskId": task_id})
+                res = rr.json()
+                if res.get("errorId"):
+                    await _say(f"🧩 reCAPTCHA çözülemedi (CapSolver: {res.get('errorDescription')})", "ERROR")
+                    return ("failed", str(res.get("errorDescription")))
+                if res.get("status") == "ready":
+                    token = (res.get("solution") or {}).get("gRecaptchaResponse")
+                    break
+        if not token:
+            return ("failed", "reCAPTCHA zaman aşımı (cevap gelmedi)")
+        # Google login = Trusted Types CSP → innerHTML'e ham string YAZILAMAZ (TypeError). Sadece .value yaz
+        # (textarea için yeterli; value reCAPTCHA'nın okuduğu alandır). Tüm g-recaptcha-response'lara uygula.
+        await page.evaluate(
+            "(t) => { document.querySelectorAll('textarea[name=\"g-recaptcha-response\"], #g-recaptcha-response')"
+            ".forEach(el => { try { el.style.display='block'; el.value=t; } catch(e){} }); }", token)
+        await _say(f"🧩 reCAPTCHA token enjekte edildi ({len(token)} karakter) — gönderiliyor.", "INFO")
+        return ("solved", token)
+    except Exception as e:
+        await _say(f"🧩 reCAPTCHA çözüm hatası: {str(e)[:60]}", "ERROR")
+        return ("failed", str(e))
+
+
 async def captcha_present(page) -> bool:
     """Sayfada GÖRÜNÜR inline resim-captcha var mı (gizli template değil — false-positive önler)."""
     try:

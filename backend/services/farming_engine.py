@@ -1283,7 +1283,13 @@ class FarmingEngine:
                     )
                     return False, "Google REDDETTİ (hesap/IP işaretli — çok deneme)"
                 elif "captcha" in u:
-                    await self._log("Google CAPTCHA istedi — çözülemedi/geçilemedi (flag'li IP olabilir).", "ERROR")
+                    # Bu Google'ın KENDİ login reCAPTCHA Enterprise challenge'ı (flag'li hesaba "kimliğini
+                    # doğrula"). CANLI TEST: CapSolver çözüyor (para harcanıyor) AMA Google token'ı KABUL
+                    # ETMİYOR (0 giriş) + her solve 30-120sn = kitle-üretimde uygulanamaz. Bu yüzden reCAPTCHA
+                    # login çözümü KAPALI (boşa para+zaman yakmasın) → hızlı fail. Çözüm: taze hesap/IP =
+                    # challenge hiç çıkmaz. (solve_recaptcha_login tanımlı; ileride opt-in açılabilir.)
+                    await self._log("Google reCAPTCHA (kimlik doğrulama) istedi — flag'li hesap/IP. "
+                                    "Otomatik geçilemez; taze proxy+hesap ya da dinlenme gerekir.", "ERROR")
                     return False, "CAPTCHA istendi (otomatik giriş engellendi)"
                 else:
                     logger.warning("Parola alanı gelmedi (url=%s)", page.url)
