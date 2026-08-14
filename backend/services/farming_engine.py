@@ -661,14 +661,14 @@ class FarmingEngine:
                             self._record(em2, False)
                         if meta:
                             failed_transient.append(meta)   # geçici → retry adayı
-                        await self._log(f"Worker-{li2:02d} ✗ Zaman aşımı ({settings.worker_timeout}s) — login/ısıtma tamamlanamadı (yavaş proxy/2FA?)", "ERROR")
+                        await self._log(f"✗ {em2 or '?'} ·Zaman aşımı ({settings.worker_timeout}s) — login/ısıtma tamamlanamadı (yavaş proxy/2FA?)", "ERROR")
                     except Exception as exc:
                         self._failed += 1
                         if em2:
                             self._record(em2, False)
                         if meta:
                             failed_transient.append(meta)
-                        await self._log(f"Worker-{li2:02d} ✗ Hata: {str(exc)[:120]}", "ERROR")
+                        await self._log(f"✗ {em2 or '?'} ·Hata: {str(exc)[:120]}", "ERROR")
                         logger.error(f"Multi worker error: {exc}")
 
             for acc, li in work:
@@ -807,7 +807,7 @@ class FarmingEngine:
                 self._record(email, True)
                 elapsed = round(time.time() - start_time, 2)
                 await self._log(
-                    f"Worker-{index:02d} [DRY] Profile_{index:05d} → {profile['cookie_count']} cookie | {fp.device_name} | {elapsed}s"
+                    f"[DRY] {email} · #{index:05d} → {profile['cookie_count']} çerez | {fp.device_name} | {elapsed}s"
                 )
                 return profile
 
@@ -819,7 +819,7 @@ class FarmingEngine:
             if proxy is None:   # FAIL-CLOSED (CRIT #1): proxysiz login = GERÇEK datacenter-IP'den →
                 self._failed += 1  # yaşlandırılmış hesap yanar + sunucu IP sızar + geo/tz uyumsuz.
                 self._record(email, False)
-                await self._log(f"Worker-{index:02d} ✗ Proxy yok — direkt bağlantı ENGELLENDİ (hesap korundu)", "ERROR")
+                await self._log(f"✗ {email} ·Proxy yok — direkt bağlantı ENGELLENDİ (hesap korundu)", "ERROR")
                 return None
             context = await self.pool.get_context(proxy, ctx_options)
 
@@ -839,7 +839,7 @@ class FarmingEngine:
                     if not logged_in:
                         self._failed += 1
                         self._record(email, False)
-                        await self._log(f"Worker-{index:02d} ✗ Login FAILED: {_why or 'bilinmeyen sebep'}", "ERROR")
+                        await self._log(f"✗ {email} · Login FAILED: {_why or 'bilinmeyen sebep'}", "ERROR")
                         # DETERMİNİSTİK hata (yanlış TOTP / reddedildi / hesap yok) AYNI hesapta HER SEFERİNDE
                         # tekrarlar → hesabı ÖLÜ işaretle, kalan worker'lar atlansın. Proxy/timeout/CAPTCHA
                         # TRANSIENT (IP/ağ bağlı) → işaretleme, tekrar denenebilir.
@@ -866,7 +866,7 @@ class FarmingEngine:
                     # TURBO ama master login başarısız → anonim (girişsiz) session ÜRETME.
                     self._failed += 1
                     self._record(email, False)
-                    await self._log(f"Worker-{index:02d} ✗ Master oturum yok (TURBO) → atlandı", "ERROR")
+                    await self._log(f"✗ {email} ·Master oturum yok (TURBO) → atlandı", "ERROR")
                     return None
 
                 # Login tamamlandı → ısıtma için ağır kaynakları şimdi blokla (hız).
@@ -888,7 +888,7 @@ class FarmingEngine:
                 if _CORE_AUTH - {c.get("name") for c in cookies}:
                     self._failed += 1
                     self._record(email, False)
-                    await self._log(f"Worker-{index:02d} ✗ Auth çerez eksik (yarı-login) → atlandı", "ERROR")
+                    await self._log(f"✗ {email} ·Auth çerez eksik (yarı-login) → atlandı", "ERROR")
                     return None
 
                 profile = self.session_generator.generate_storage_state(
@@ -923,7 +923,7 @@ class FarmingEngine:
                     pass
                 elapsed = round(time.time() - start_time, 1)
                 await self._log(
-                    f"Worker-{index:02d} ✓ Profile_{index:05d} → {len(cookies)} cookie | {fp.device_name} | {elapsed}s"
+                    f"✓ {email} · #{index:05d} → {len(cookies)} çerez | {fp.device_name} | {elapsed}s"
                 )
                 return profile
 
@@ -941,7 +941,7 @@ class FarmingEngine:
             if proxy and proxy.get("server"):
                 try: await self.proxy_rotator.mark_dead_server(proxy["server"])
                 except Exception: pass
-            await self._log(f"Worker-{index:02d} ✗ TIMEOUT → skip", "WARNING")
+            await self._log(f"✗ {email} ·TIMEOUT → skip", "WARNING")
             return None
         except Exception as e:
             self._failed += 1
@@ -950,7 +950,7 @@ class FarmingEngine:
             if proxy and proxy.get("server") and any(k in msg for k in ("proxy", "net::err", "econnrefused", "tunnel", "timed out", "connection")):
                 try: await self.proxy_rotator.mark_dead_server(proxy["server"])
                 except Exception: pass
-            await self._log(f"Worker-{index:02d} ✗ {e}", "ERROR")
+            await self._log(f"✗ {email} ·{e}", "ERROR")
             return None
         finally:
             self._active_workers -= 1
