@@ -288,6 +288,57 @@ class FarmingEngine:
         s = self._acct_stats.setdefault(email, {"ok": 0, "fail": 0})
         s["ok" if ok else "fail"] += 1
 
+    @staticmethod
+    def _proxy_srv_key(raw_or_server: str) -> str:
+        """Proxy kimliği (http://host:port) — resting anahtarı. Ham proxy url'inden VEYA playwright
+        server string'inden AYNI anahtarı üretir (kullanıcı:parola farkı önemli değil)."""
+        s = (raw_or_server or "").strip()
+        if not s:
+            return ""
+        try:
+            return ProxyRotator._to_playwright_proxy(s).get("server", s)
+        except Exception:
+            return s
+
+    async def _prep_proxies(self, redis, proxy_urls) -> list:
+        """Batch için proxy hazırla: (1) redis'te DİNLENMEDE (REDDETTİ → 6h) olanları ÇIKAR, (2) kalanları
+        KARIŞTIR. round-robin _index HER BATCH 0'dan başladığı için karıştırmazsak hep ilk N proxy yakılır
+        → 990 proxy'ye EŞİT yayılım şart (yorulan kendiliğinden dinlenir). Fail-safe: hata/hepsi-dinlenmede
+        → shuffle-all (üretim durmaz)."""
+        import random as _r
+        pl = list(proxy_urls or [])
+        if len(pl) <= 1:
+            return pl
+        try:
+            if redis is not None:
+                raw = await redis.hgetall("proxy:rested")
+                if raw:
+                    now = time.time()
+                    rested = set()
+                    for k, v in raw.items():
+                        kk = k.decode() if isinstance(k, (bytes, bytearray)) else k
+                        try:
+                            if float(v) > now:
+                                rested.add(kk)
+                        except Exception:
+                            pass
+                    if rested:
+                        fresh = [u for u in pl if self._proxy_srv_key(u) not in rested]
+                        if fresh:            # hepsi dinlenmede DEĞİLSE dinlenenleri çıkar
+                            pl = fresh
+        except Exception:
+            pass
+        _r.shuffle(pl)
+        return pl
+
+    async def _rest_proxy(self, redis, server: str, hours: float = 6.0) -> None:
+        """Bir proxy'yi redis'te 'hours' saat DİNLENDİR (batch'ler arası kalıcı) — REDDETTİ tekrarında."""
+        try:
+            if redis is not None and server:
+                await redis.hset("proxy:rested", self._proxy_srv_key(server), time.time() + hours * 3600)
+        except Exception:
+            pass
+
     async def _load_captcha_cfg(self, redis) -> None:
         """Batch başında CapSolver ayarını yükle. ÖNCELİK: panel (redis config:captcha). Panelde yoksa
         .env (settings.captcha_api_key) YEDEK olarak kullanılır. Kapalı/anahtarsızsa çözücü no-op kalır
@@ -474,7 +525,7 @@ class FarmingEngine:
         # Günlük-limit clamp'i checkpoint/start_index BİLİNDİKTEN SONRA uygulanır (aşağıda) —
         # resume'da count'un start_index'in ALTINA düşüp range'i boşaltmasını önlemek için (Tur3 #E).
 
-        self.proxy_rotator.load_proxies(proxy_urls)
+        self.proxy_rotator.load_proxies(await self._prep_proxies(redis, proxy_urls))
         keywords = keywords or self.keyword_manager.get_keywords(sector)
 
         worker_counts = {"SAFE": settings.safe_worker_count, "FAST": settings.fast_worker_count, "TURBO": settings.turbo_worker_count}
@@ -642,7 +693,7 @@ class FarmingEngine:
         self._red_skipped = {}     # bu batch'te KIRMIZI olduğu için atlanan hesaplar {email: strike}
         self._reddetti_count = {}  # bu batch'te hesap-başı REDDETTİ sayacı (storm sınırı)
         await self._load_captcha_cfg(redis)
-        self.proxy_rotator.load_proxies(proxy_urls)
+        self.proxy_rotator.load_proxies(await self._prep_proxies(redis, proxy_urls))
         base_keywords = keywords or self.keyword_manager.get_keywords(sector)
 
         # TURBO klon-modeli çoklu-hesapta işlemez (her worker kendi hesabına GERÇEK login yapar)
@@ -915,9 +966,12 @@ class FarmingEngine:
                                         _srv, max_rejects=settings.proxy_reddetti_max
                                     )
                                     if _flagged:
+                                        # KALICI DİNLENDİR (batch'ler arası): bu proxy 6h redis'te rested →
+                                        # sonraki batch'lerde de _prep_proxies onu çıkarır (yorulanı dinlendir).
+                                        await self._rest_proxy(_r, _srv, hours=6.0)
                                         await self._log(
-                                            f"🚩 Proxy flag'lendi (REDDETTİ tekrarı) — {email} SUÇLANMADI, "
-                                            f"başka proxy'yle devam eder", "WARNING",
+                                            f"🚩 Proxy flag'lendi + 6sa dinlendirildi (REDDETTİ tekrarı) — "
+                                            f"{email} SUÇLANMADI, başka proxy'yle devam eder", "WARNING",
                                         )
                                 if _r is not None:
                                     _at = time.strftime("%Y-%m-%d %H:%M", time.gmtime(time.time() + 3 * 3600))
