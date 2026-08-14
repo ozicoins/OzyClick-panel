@@ -62,7 +62,7 @@ export default function UserSettings() {
     onError: () => toast.error('Kaydedilemedi'),
   })
   const testCap = useMutation({
-    mutationFn: () => api.testCaptcha(),
+    mutationFn: () => api.testCaptcha(capKey),   // alana yazılanı test et (kaydetmeden); boşsa kayıtlı
     onSuccess: (r) => (r.ok ? toast.success(r.detail) : toast.error(r.detail)),
     onError: () => toast.error('Sorgulanamadı'),
   })

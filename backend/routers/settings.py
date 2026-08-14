@@ -68,14 +68,21 @@ async def captcha_put(req: CaptchaRequest, request: Request, _user: dict = Depen
     return await set_captcha(request.app.state.redis, req.api_key, req.enabled, req.service)
 
 
+class CaptchaTestRequest(BaseModel):
+    api_key: str = ""
+
+
 @router.post("/captcha/test")
-async def captcha_test(request: Request, _user: dict = Depends(get_current_user)):
-    """CapSolver bakiyesini sorgula (anahtar geçerli mi + para var mı)."""
+async def captcha_test(req: CaptchaTestRequest, request: Request, _user: dict = Depends(get_current_user)):
+    """CapSolver bakiyesini sorgula. Alana YAZILAN anahtar öncelikli (kaydetmeden test edilebilir);
+    boş/maskeli ise KAYITLI anahtar denenir."""
     import httpx
-    cfg = await get_captcha(request.app.state.redis, include_secret=True)
-    key = cfg.get("api_key", "")
+    key = (req.api_key or "").strip()
+    if not key or "…" in key or "•" in key:      # yazılmadı/maskeli → kayıtlıyı kullan
+        cfg = await get_captcha(request.app.state.redis, include_secret=True)
+        key = cfg.get("api_key", "")
     if not key:
-        return {"ok": False, "detail": "Anahtar girilmemiş."}
+        return {"ok": False, "detail": "Anahtar girilmemiş — alana yaz ya da Kaydet."}
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             r = await client.post("https://api.capsolver.com/getBalance",
