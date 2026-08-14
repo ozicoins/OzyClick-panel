@@ -294,6 +294,22 @@ class FarmingEngine:
             except Exception:
                 await locator.fill(text)
 
+    def _existing_max_index(self, output_dir: str) -> int:
+        """Klasördeki en yüksek profile_XXXXX index'i (yoksa 0). Yeni profiller bunun ÜSTÜNDEN
+        numaralanır → mevcut çerezlerin ÜZERİNE YAZILMAZ (append). Aksi halde re-run
+        profile_00001..0000n'i eskisinin üstüne yazar, sayı artmaz ('üretildi ama eklenmemiş')."""
+        mx = 0
+        try:
+            for name in os.listdir(output_dir):
+                if name.startswith("profile_") and name.endswith(".json"):
+                    try:
+                        mx = max(mx, int(name[len("profile_"):-len(".json")]))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        return mx
+
     async def _collect_profiles_for_manifest(self, output_dir: str, in_memory: list[dict],
                                              max_index: int | None = None) -> list[dict]:
         """Manifest/proxy-map için profilleri topla — bellekteki taze kayıtları (all_profiles)
@@ -432,7 +448,10 @@ class FarmingEngine:
             os.makedirs(output_dir, exist_ok=True)
 
             checkpoint = await self._load_checkpoint(output_dir)
-            start_index = checkpoint.get("last_completed_index", 0) + 1
+            # ÜZERİNE YAZMA KORUMASI: checkpoint VEYA disk'teki mevcut en yüksek index'ten SONRA başla.
+            # Batch bitince checkpoint silindiği için re-run'da 1'e düşüp mevcut profilleri ezerdi.
+            start_index = max(checkpoint.get("last_completed_index", 0) + 1,
+                              self._existing_max_index(output_dir) + 1)
 
             # Aşırı-farmlama koruması: günlük limiti aşma. RESUME-GÜVENLİ: 'used' (redis günlük sayaç)
             # zaten bu batch'in üretilmiş (start_index-1) profilini içerir; bu yüzden count'u YENİ-üretim
@@ -587,7 +606,7 @@ class FarmingEngine:
         # (aşırı-farmlama koruması; Google flag'lemesini azaltır).
         limit = settings.per_account_daily_limit
         dirs = {}
-        acct_n = []   # [(acc, n)] — hesap sırası korunur
+        acct_n = []   # [(acc, n, start)] — start = mevcut en yüksek index (ÜZERİNE YAZMA koruması)
         for acc in accounts:
             em = acc["email"]
             odir = os.path.join(settings.cookies_output_dir, em.replace("@", "_at_").replace(".", "_").replace("/", "_").replace("\\", "_"))
@@ -600,18 +619,21 @@ class FarmingEngine:
                 if n == 0:
                     self._skipped[em] = used   # günlük limit dolu → bugün atla
                     continue
-            acct_n.append((acc, n))
+            # ÜZERİNE YAZMA KORUMASI: yeni profiller mevcut en yüksek index'ten SONRA numaralanır (append).
+            # Aksi halde re-run profile_00001..0000n'i eskisinin üstüne yazar → sayı ARTMAZ (kayıp bug).
+            acct_n.append((acc, n, self._existing_max_index(odir)))
 
-        # ROUND-ROBIN diziliş: [A1,B1,C1,...(tüm hesaplar TUR 1)..., A2,B2,...(TUR 2)...] — hesap-gruplu
-        # ([A1,A2,...,A50,B1,...]) DEĞİL. Aksi halde ilk num_workers worker AYNI hesaba (A) eşzamanlı
-        # login yapıyordu → Google "çok deneme" flag'liyordu (REDDETTİ). Round-robin'de her tur her
-        # hesaptan 1 profil; hesap sayısı ≥ worker sayısı iken bir hesaba ASLA 2 worker aynı anda girmez.
+        # ROUND-ROBIN diziliş: [A,B,C,...(tüm hesaplar TUR 1)..., A,B,...(TUR 2)...] — hesap-gruplu
+        # ([A×50, B×50,...]) DEĞİL. Aksi halde ilk num_workers worker AYNI hesaba (A) eşzamanlı login
+        # yapıyordu → Google "çok deneme" flag'liyordu (REDDETTİ). Round-robin'de her tur her hesaptan
+        # 1 profil; hesap sayısı ≥ worker sayısı iken bir hesaba ASLA 2 worker aynı anda girmez.
+        # Index = start + tur → mevcut çerezlerin üstüne YAZMAZ.
         work = []
-        _max_n = max((n for _, n in acct_n), default=0)
+        _max_n = max((n for _, n, _ in acct_n), default=0)
         for _r in range(1, _max_n + 1):
-            for acc, n in acct_n:
+            for acc, n, start in acct_n:
                 if _r <= n:
-                    work.append((acc, _r))
+                    work.append((acc, start + _r))
 
         self._planned_total = len(work)   # gerçek hedef (kırpımdan sonra) → panelde doğru toplam
         per_acct = {}   # email -> profiles
