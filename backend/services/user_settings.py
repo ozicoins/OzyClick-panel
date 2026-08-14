@@ -81,6 +81,41 @@ async def set_telegram(redis, bot_token: str, chat_id: str, enabled: bool,
     return await get_telegram(redis, include_secret=False)
 
 
+_CAPTCHA_KEY = "config:captcha"   # redis: {"api_key","service","enabled"}
+
+
+async def get_captcha(redis, include_secret: bool = False) -> dict:
+    """Captcha (2captcha) ayarı. include_secret=False → api_key maskeli (panel gösterimi)."""
+    cfg = {"enabled": False, "api_key": "", "service": "2captcha"}
+    if redis is not None:
+        try:
+            raw = await redis.get(_CAPTCHA_KEY)
+            if raw:
+                cfg.update(orjson.loads(raw))
+        except Exception:
+            pass
+    if not include_secret and cfg.get("api_key"):
+        k = cfg["api_key"]
+        cfg["api_key"] = (k[:4] + "…" + k[-4:]) if len(k) > 10 else "••••"
+        cfg["configured"] = True
+    else:
+        cfg["configured"] = bool(cfg.get("api_key"))
+    return cfg
+
+
+async def set_captcha(redis, api_key: str, enabled: bool, service: str = "2captcha") -> dict:
+    """Captcha ayarını kaydet. api_key boş/maskeli gelirse ESKİSİ korunur (üzerine yazma)."""
+    if redis is None:
+        return await get_captcha(None)
+    cur = await get_captcha(redis, include_secret=True)
+    k = (api_key or "").strip()
+    if not k or "…" in k or "•" in k:   # maskeli/boş → eskisini koru
+        k = cur.get("api_key", "")
+    cfg = {"enabled": bool(enabled), "api_key": k, "service": (service or "2captcha").strip()}
+    await redis.set(_CAPTCHA_KEY, orjson.dumps(cfg))
+    return await get_captcha(redis, include_secret=False)
+
+
 async def send_telegram(redis, text: str) -> bool:
     """Telegram'a mesaj gönder (enabled + token + chat_id varsa). Sessiz başarısızlık."""
     cfg = await get_telegram(redis, include_secret=True)

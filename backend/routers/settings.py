@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Literal
 
 from auth import get_current_user
-from services.user_settings import get_telegram, set_telegram, send_telegram
+from services.user_settings import get_telegram, set_telegram, send_telegram, get_captcha, set_captcha
 from services.automation_config import get_schedule, set_schedule, get_auto_cleanup, set_auto_cleanup
 
 router = APIRouter()
@@ -49,6 +49,43 @@ async def telegram_test(request: Request, _user: dict = Depends(get_current_user
     if ok:
         return {"ok": True, "detail": "Test mesajı gönderildi — Telegram'ı kontrol edin."}
     return {"ok": False, "detail": "Gönderilemedi. bot_token / chat_id doğru mu ve bildirim AÇIK mı?"}
+
+
+# ---------- Captcha (2captcha) ----------
+class CaptchaRequest(BaseModel):
+    api_key: str = ""
+    enabled: bool = False
+    service: str = "2captcha"
+
+
+@router.get("/captcha")
+async def captcha_get(request: Request, _user: dict = Depends(get_current_user)):
+    return await get_captcha(request.app.state.redis, include_secret=False)
+
+
+@router.put("/captcha")
+async def captcha_put(req: CaptchaRequest, request: Request, _user: dict = Depends(get_current_user)):
+    return await set_captcha(request.app.state.redis, req.api_key, req.enabled, req.service)
+
+
+@router.post("/captcha/test")
+async def captcha_test(request: Request, _user: dict = Depends(get_current_user)):
+    """2captcha bakiyesini sorgula (anahtar geçerli mi + para var mı)."""
+    import httpx
+    cfg = await get_captcha(request.app.state.redis, include_secret=True)
+    key = cfg.get("api_key", "")
+    if not key:
+        return {"ok": False, "detail": "Anahtar girilmemiş."}
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.get("https://2captcha.com/res.php",
+                                  params={"key": key, "action": "getbalance", "json": 1})
+            data = r.json()
+        if data.get("status") == 1:
+            return {"ok": True, "detail": f"Anahtar geçerli · bakiye ${data.get('request')}"}
+        return {"ok": False, "detail": f"2captcha: {data.get('request')}"}
+    except Exception as e:
+        return {"ok": False, "detail": f"Sorgulanamadı: {e}"}
 
 
 # ---------- Üretim Zamanlayıcı ----------

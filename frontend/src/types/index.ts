@@ -161,6 +161,13 @@ export interface TelegramSettings {
   liveness_threshold?: number
 }
 
+export interface CaptchaSettings {
+  enabled: boolean
+  api_key: string        // maskeli (GET) — tam değer asla dönmez
+  service: string
+  configured?: boolean
+}
+
 // Üretim zamanlayıcı yapılandırması (kullanıcı ayarları — çalışma durumu ayrı, panelde gösterilmez)
 export interface ScheduleConfig {
   enabled: boolean

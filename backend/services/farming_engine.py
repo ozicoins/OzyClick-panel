@@ -278,11 +278,45 @@ class FarmingEngine:
         self._deadlogin: dict[str, str] = {}     # email -> sebep: DETERMİNİSTİK login hatası (yanlış TOTP/
         #  reddedildi/hesap yok) alan hesap → kalan worker'ları BOŞA deneme, browser bile açma.
         self._red_skipped: dict[str, int] = {}   # email -> strike: KIRMIZI olduğu için bu batch'te atlanan hesap
+        self._captcha_key: str = ""              # 2captcha anahtarı (batch başında redis'ten yüklenir)
+        self._captcha_service: str = "2captcha"
+        self._captcha_enabled: bool = False
 
     def _record(self, email: str, ok: bool) -> None:
         """Hesap bazlı başarı/başarısızlık sayacı (panelde hangi hesap sorunlu görünür)."""
         s = self._acct_stats.setdefault(email, {"ok": 0, "fail": 0})
         s["ok" if ok else "fail"] += 1
+
+    async def _load_captcha_cfg(self, redis) -> None:
+        """Batch başında 2captcha ayarını redis'ten yükle. Kapalı/anahtarsızsa çözücü no-op kalır
+        (login akışı ASLA değişmez). Hata olursa sessizce devre dışı."""
+        self._captcha_key = ""
+        self._captcha_service = "2captcha"
+        self._captcha_enabled = False
+        try:
+            from services.user_settings import get_captcha
+            cap = await get_captcha(redis, include_secret=True)
+            if cap.get("enabled") and cap.get("api_key"):
+                self._captcha_enabled = True
+                self._captcha_key = cap.get("api_key", "")
+                self._captcha_service = cap.get("service", "2captcha")
+        except Exception:
+            pass
+
+    async def _solve_captcha_if_present(self, page) -> None:
+        """Login adımında inline resim-captcha varsa çöz + doldur. Captcha yoksa/anahtar yoksa
+        anında döner (normal akış etkilenmez). Her hata yutulur → login'i ASLA bozmaz."""
+        if not self._captcha_enabled or not self._captcha_key:
+            return
+        try:
+            from services.captcha_solver import solve_image_captcha
+            status, _ = await solve_image_captcha(
+                page, self._captcha_key, self._captcha_service, log=self._log
+            )
+            if status == "solved":
+                self._captcha_solved = getattr(self, "_captcha_solved", 0) + 1
+        except Exception:
+            pass
 
     @staticmethod
     async def _human_type(locator, text: str):
@@ -426,6 +460,7 @@ class FarmingEngine:
         self._skipped = {}
         self._deadlogin = {}       # her batch TEMİZ başlar (oto-iyileşme)
         self._red_skipped = {}
+        await self._load_captcha_cfg(redis)
 
         # Günlük-limit clamp'i checkpoint/start_index BİLİNDİKTEN SONRA uygulanır (aşağıda) —
         # resume'da count'un start_index'in ALTINA düşüp range'i boşaltmasını önlemek için (Tur3 #E).
@@ -596,6 +631,7 @@ class FarmingEngine:
         self._skipped = {}
         self._deadlogin = {}       # her batch TEMİZ başlar → geçen batch'te işaretlenen hesap yeniden denenir (oto-iyileşme)
         self._red_skipped = {}     # bu batch'te KIRMIZI olduğu için atlanan hesaplar {email: strike}
+        await self._load_captcha_cfg(redis)
         self.proxy_rotator.load_proxies(proxy_urls)
         base_keywords = keywords or self.keyword_manager.get_keywords(sector)
 
@@ -1112,6 +1148,7 @@ class FarmingEngine:
             await email_input.click()
             await self._human_type(email_input, email)  # insan gibi yaz
             await asyncio.sleep(random.uniform(0.4, 0.9))
+            await self._solve_captcha_if_present(page)   # inline resim-captcha varsa çöz (yoksa no-op)
             nxt = page.locator(login_sel.get("email_next", "#identifierNext")).first
             if await nxt.count() > 0:
                 await nxt.click()
@@ -1141,6 +1178,7 @@ class FarmingEngine:
             await pass_input.click()
             await self._human_type(pass_input, password)  # insan gibi yaz
             await asyncio.sleep(random.uniform(0.4, 0.9))
+            await self._solve_captcha_if_present(page)   # parola adımında resim-captcha varsa çöz (yoksa no-op)
             pnxt = page.locator(login_sel.get("password_next", "#passwordNext")).first
             if await pnxt.count() > 0:
                 await pnxt.click()

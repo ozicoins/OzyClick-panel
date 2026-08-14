@@ -254,6 +254,15 @@ export const api = {
     request<import('../types').BackupConfig>('/api/v1/export/backup-config', { method: 'PUT', body: JSON.stringify(body) }),
   testTelegram: () =>
     request<{ ok: boolean; detail: string }>('/api/v1/settings/telegram/test', { method: 'POST' }),
+
+  // Captcha (2captcha) — anahtar maskeli saklanır (redis), sohbet/GitHub'a asla düşmez.
+  getCaptcha: () =>
+    request<import('../types').CaptchaSettings>('/api/v1/settings/captcha'),
+  setCaptcha: (body: { api_key: string; enabled: boolean; service?: string }) =>
+    request<import('../types').CaptchaSettings>('/api/v1/settings/captcha', { method: 'PUT', body: JSON.stringify(body) }),
+  testCaptcha: () =>
+    request<{ ok: boolean; detail: string }>('/api/v1/settings/captcha/test', { method: 'POST' }),
+
   changePassword: (body: { current_password: string; new_password: string }) =>
     request<{ status: string; detail: string }>('/api/v1/auth/change-password', { method: 'POST', body: JSON.stringify(body) }),
 
