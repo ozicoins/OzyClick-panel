@@ -29,19 +29,30 @@ _CREATE_URL = "https://api.capsolver.com/createTask"
 _RESULT_URL = "https://api.capsolver.com/getTaskResult"
 
 
-async def solve_recaptcha_login(page, api_key: str, log=None) -> tuple[str, str]:
-    """Google login reCAPTCHA (Enterprise) çözmeyi DENE — CapSolver ReCaptchaV2EnterpriseTaskProxyLess.
-    sitekey reCAPTCHA iframe'inin k= param'ından alınır; token g-recaptcha-response'a enjekte edilir.
-    UYARI: Google'ın KENDİ login reCAPTCHA'sı en zorlardan — token çözülse bile Google kabul etmeyebilir
-    (cihaz/davranış sinyalleri + flag'li IP). 'solved' = token enjekte edildi (submit çağıran tarafta)."""
+async def solve_recaptcha_login(page, api_key: str = "", log=None) -> tuple[str, str]:
+    """Google login reCAPTCHA / reCAPTCHA v2 çözücü.
+    Öncelikle YEREL WHISPER AI (Sesli meydan okuma) ile çözer (tarayıcının kendi IP'sinden).
+    Eğer Whisper çözemezse veya API anahtarı tanımlıysa CapSolver'a fallback yapar."""
     async def _say(m, l="INFO"):
         if log:
             try:
                 await log(m, l)
             except Exception:
                 pass
+
+    # 1. Aşama: Yerel Whisper Çözücüyü Dene (Proxy/IP uyumlu, %100 Doğal)
+    try:
+        from services.recaptcha_whisper import RecaptchaWhisperSolver
+        await _say("🧩 Yerel Whisper AI reCAPTCHA çözücüsü başlatılıyor...", "INFO")
+        success = await RecaptchaWhisperSolver.solve(page, max_wait=35, log=log)
+        if success:
+            await _say("🧩 reCAPTCHA Yerel Whisper AI ile başarıyla aşıldı!", "INFO")
+            return ("solved", "whisper_local")
+    except Exception as w_err:
+        await _say(f"🧩 Whisper denemesi uyarısı: {w_err}", "DEBUG")
+
     if not api_key:
-        return ("nokey", "")
+        return ("failed", "Whisper çözemedi ve CapSolver API anahtarı yok")
     try:
         sitekey = await page.evaluate(
             "() => { const f=document.querySelector('iframe[src*=\"recaptcha\"]');"

@@ -1283,14 +1283,23 @@ class FarmingEngine:
                     )
                     return False, "Google REDDETTİ (hesap/IP işaretli — çok deneme)"
                 elif "captcha" in u:
-                    # Bu Google'ın KENDİ login reCAPTCHA Enterprise challenge'ı (flag'li hesaba "kimliğini
-                    # doğrula"). CANLI TEST: CapSolver çözüyor (para harcanıyor) AMA Google token'ı KABUL
-                    # ETMİYOR (0 giriş) + her solve 30-120sn = kitle-üretimde uygulanamaz. Bu yüzden reCAPTCHA
-                    # login çözümü KAPALI (boşa para+zaman yakmasın) → hızlı fail. Çözüm: taze hesap/IP =
-                    # challenge hiç çıkmaz. (solve_recaptcha_login tanımlı; ileride opt-in açılabilir.)
-                    await self._log("Google reCAPTCHA (kimlik doğrulama) istedi — flag'li hesap/IP. "
-                                    "Otomatik geçilemez; taze proxy+hesap ya da dinlenme gerekir.", "ERROR")
-                    return False, "CAPTCHA istendi (otomatik giriş engellendi)"
+                    # Google login reCAPTCHA challenge'ı: Yerel Whisper solver ile çözmeyi dene
+                    await self._log("Google reCAPTCHA meydan okuması tespit edildi — Yerel Whisper AI ile çözülüyor...", "INFO")
+                    try:
+                        from services.captcha_solver import solve_recaptcha_login
+                        _st, _ = await solve_recaptcha_login(page, self._captcha_key or "", log=self._log)
+                        if _st == "solved":
+                            try:
+                                await pass_input.wait_for(state="visible", timeout=15000)
+                                u = "__solved__"
+                            except Exception:
+                                u = page.url.lower()
+                    except Exception as _ce:
+                        logger.warning("reCAPTCHA çözümü sırasında hata: %s", _ce)
+
+                    if u != "__solved__":
+                        await self._log("Google reCAPTCHA aşılamadı — hesap/IP aşırı kilitli. Temiz proxy veya dinlenme önerilir.", "ERROR")
+                        return False, "CAPTCHA istendi (aşılmadı)"
                 else:
                     logger.warning("Parola alanı gelmedi (url=%s)", page.url)
                     return False, "parola adımı gelmedi (e-posta reddedildi ya da akış değişti)"
